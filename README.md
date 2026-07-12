@@ -75,8 +75,8 @@ curl -fsSL https://raw.githubusercontent.com/agharaafat/soviez-deploy/main/setup
 The installer:
 
 - Creates an immutable `.soviez.env` (container network identity, Postgres password, **Database Master Password**, dynamic host port from **8069** upward)
-- Starts PostgreSQL with `POSTGRES_DB=postgres` only (no empty application schema)
-- Starts `soviez/soviez-erp:v18.0.1.01.0` **without** `POSTGRES_DB`, injecting `--admin-passwd` from `SOVIEZ_ADMIN_PASSWORD`
+- Starts PostgreSQL (`postgres:latest`) with `POSTGRES_DB=postgres` only (no empty application schema)
+- Starts **`soviez/soviez-erp:latest`** **without** `POSTGRES_DB`, injecting `--admin-passwd` from `SOVIEZ_ADMIN_PASSWORD`
 - Prints the bound UI URL (for example `http://localhost:8071` when 8069 is already in use)
 - Prints a high-visibility **red console alert** with the Database Master Password on first install — save it immediately
 
@@ -85,7 +85,7 @@ The installer:
 | Surface | Endpoint |
 |---------|----------|
 | **Web UI** | `http://<your-server-ip>:${SOVIEZ_HOST_PORT}` |
-| **Image** | [`soviez/soviez-erp:v18.0.1.01.0`](https://hub.docker.com/r/soviez/soviez-erp) |
+| **Image** | [`soviez/soviez-erp:latest`](https://hub.docker.com/r/soviez/soviez-erp) |
 
 **First boot:** navigate to the printed URL. Soviez ERP opens the interactive **Web Database Manager**. Enter the Master Password from the red alert (or `SOVIEZ_ADMIN_PASSWORD` in `.soviez.env`) to create a fresh database. After initialization, apply your perpetual activation key and proceed to Apps.
 
@@ -98,6 +98,26 @@ Lost the Master Password? Rotate it without touching databases or volumes:
 ```
 
 This injects a fresh secure master key into `.soviez.env`, recycles only the `soviez-web` container, and displays the new token in a red console alert. Existing database configurations and Docker volumes are preserved.
+
+### 🔄 Upgrading Application Containers & Database Schema
+
+Track rolling Hub releases and migrate schemas in one command:
+
+```bash
+./setup.sh --update
+```
+
+Pulls `soviez/soviez-erp:latest` + `postgres:latest`, runs `-u base,local_license_guard,mail,web,web_enterprise,soviez_web_ui --stop-after-init` against discovered databases, recycles `soviez-web`, and prints a green success banner. Volumes and MAC/port secrets stay intact.
+
+### 🏢 Provisioning Multi-Tenant Isolated Instances
+
+Spin infinite parallel ERP clusters on one host:
+
+```bash
+./setup.sh --new
+```
+
+Allocates the next index (`.soviez_1.env`, `.soviez_2.env`, … under `/root` when writable), creates sandboxed network/volume/container names, binds a free port from **8073** upward, generates unique secrets + MAC, and flashes the new Master Password in a red alert.
 
 ### Manual `docker run` (equivalent topology)
 
@@ -112,7 +132,7 @@ docker run -d \
   -e POSTGRES_PASSWORD="${SOVIEZ_DB_PASSWORD}" \
   -e PASSWORD="${SOVIEZ_DB_PASSWORD}" \
   -v soviez_db_data:/var/lib/postgresql/data \
-  postgres:15-alpine
+  postgres:latest
 
 # Soviez ERP — authenticate to the cluster; omit POSTGRES_DB; inject master password
 docker run -d \
@@ -125,7 +145,7 @@ docker run -d \
   -e POSTGRES_PASSWORD="${SOVIEZ_DB_PASSWORD}" \
   -e PASSWORD="${SOVIEZ_DB_PASSWORD}" \
   -v soviez_filestore:/root/.local/share/Odoo/filestore \
-  soviez/soviez-erp:v18.0.1.01.0 \
+  soviez/soviez-erp:latest \
   python3 soviez-bin -c soviez.conf \
     --db_host=soviez-db \
     --db_port=5432 \
