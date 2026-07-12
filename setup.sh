@@ -234,7 +234,7 @@ docker run -d \
     --db_port=5432 \
     --db_user=soviez \
     --db_password="${SOVIEZ_DB_PASSWORD}" \
-    --data_dir=/root/.local/share/Odoo >/dev/null
+    --data-dir=/root/.local/share/Odoo >/dev/null
 
 log_info "Cluster launch complete."
 log_info "UI: http://localhost:${SOVIEZ_HOST_PORT}"
