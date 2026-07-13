@@ -1,22 +1,26 @@
 #!/usr/bin/env bash
-# Soviez ERP — multi-instance SaaS appliance bootstrap (empty-directory safe)
-# Uses pure `docker run` only — no docker-compose.yml or host config mounts required.
+# Soviez ERP — production onboarding wizard (Ubuntu/Debian)
 #
-# Usage:
-#   ./setup.sh                 # install / relaunch primary cluster (.soviez.env)
-#   ./setup.sh --update        # pull :latest + schema upgrade + recycle primary web
-#   ./setup.sh --new           # provision next isolated multi-tenant instance
-#   ./setup.sh --recoverdbpass # rotate Database Master Password + recycle web
+# Modes:
+#   ./setup.sh            | --init    Host environment bootstrap (apt, Docker, Nginx, Certbot, UFW)
+#   ./setup.sh --new                  Provision isolated multi-tenant instance + DNS/SSL/addons
+#   ./setup.sh --update               Pull soviez/soviez-erp:latest and recycle web runners
+#   ./setup.sh --recoverdbpass        Rotate Database Master Password (primary / indexed via env)
+#
+# Logs: /var/log/soviez_setup.log (verbose); terminal shows clean status UI only.
 set -euo pipefail
 
 readonly APP_IMAGE="soviez/soviez-erp:latest"
-readonly DB_IMAGE="postgres:latest"
+readonly DB_IMAGE="postgres:16"
 readonly UPGRADE_MODULES="base,local_license_guard,mail,web,web_enterprise,soviez_web_ui"
 readonly PORT_SCAN_MAX=8999
 readonly PRIMARY_PORT_START=8069
 readonly MULTI_PORT_START=8073
+readonly CUSTOM_ADDONS_CONTAINER_PATH="/var/lib/odoo/custom_addons"
+LOG_FILE="/var/log/soviez_setup.log"
+readonly NGINX_LIMITS_CONF="/etc/nginx/conf.d/soviez_limits.conf"
 
-# Mutable topology (primary defaults; --new overrides via apply_topology_indexed)
+# Mutable topology (overridden by apply_topology_*)
 ENV_FILE=".soviez.env"
 NETWORK_NAME="soviez_network"
 DB_CONTAINER="soviez-db"
@@ -25,13 +29,30 @@ DB_VOLUME="soviez_db_data"
 FILESTORE_VOLUME="soviez_filestore"
 INSTANCE_INDEX=""
 PORT_SCAN_START="${PRIMARY_PORT_START}"
+CUSTOM_ADDONS_HOST_PATH=""
+TENANT_DOMAIN=""
+
+# ---------------------------------------------------------------------------
+# Colors / UI
+# ---------------------------------------------------------------------------
+readonly C_RESET=$'\033[0m'
+readonly C_BOLD=$'\033[1m'
+readonly C_DIM=$'\033[2m'
+readonly C_GREEN=$'\033[0;32m'
+readonly C_YELLOW=$'\033[0;33m'
+readonly C_RED=$'\033[0;31m'
+readonly C_CYAN=$'\033[0;36m'
+readonly C_BLUE=$'\033[0;34m'
 
 # ---------------------------------------------------------------------------
 # Argument parser
 # ---------------------------------------------------------------------------
-MODE="install"
+MODE="init"
 for arg in "$@"; do
   case "${arg}" in
+    --init)
+      MODE="init"
+      ;;
     --update)
       MODE="update"
       ;;
@@ -43,18 +64,21 @@ for arg in "$@"; do
       ;;
     -h|--help)
       cat <<'USAGE'
-Soviez ERP bootstrap — multi-instance SaaS appliance
+Soviez ERP — production onboarding wizard
 
 Usage:
-  ./setup.sh                 Install or relaunch the primary Docker cluster
-  ./setup.sh --update        Pull :latest images, upgrade schemas, recycle web
-  ./setup.sh --new           Provision the next isolated multi-tenant instance
-  ./setup.sh --recoverdbpass Rotate Database Master Password and recycle web
-  ./setup.sh --help          Show this help
+  ./setup.sh [--init]         Bootstrap host (apt, Docker, Nginx, Certbot, UFW)
+  ./setup.sh --new            Provision a new isolated tenant (domain + SSL + addons)
+  ./setup.sh --update         Pull latest ERP image and recycle web containers
+  ./setup.sh --recoverdbpass  Rotate Database Master Password
+  ./setup.sh --help           Show this help
 
-Images (rolling):
+Images:
   soviez/soviez-erp:latest
-  postgres:latest
+  postgres:16
+
+Verbose log:
+  /var/log/soviez_setup.log
 USAGE
       exit 0
       ;;
@@ -68,33 +92,136 @@ done
 
 umask 077
 
-log_info()  { echo "[INFO] $*"; }
-log_warn()  { echo "[WARN] $*" >&2; }
-log_error() { echo "[ERROR] $*" >&2; }
-
-print_green_success() {
-  local GREEN=$'\033[0;32m'
-  local BOLD=$'\033[1m'
-  local NC=$'\033[0m'
-  echo ""
-  echo -e "${GREEN}${BOLD}==============================================================${NC}"
-  echo -e "${GREEN}${BOLD}  $*${NC}"
-  echo -e "${GREEN}${BOLD}==============================================================${NC}"
-  echo ""
+# ---------------------------------------------------------------------------
+# Logging → file; clean UI → terminal
+# ---------------------------------------------------------------------------
+ensure_log_file() {
+  # Prefer /var/log when root; otherwise fall back to instance ledger / tmp.
+  if [[ "${EUID}" -eq 0 ]]; then
+    touch "${LOG_FILE}" 2>/dev/null || true
+    chmod 640 "${LOG_FILE}" 2>/dev/null || true
+    return 0
+  fi
+  if [[ -d "${HOST_SOVIEZ_DIR:-}" ]] || mkdir -p "${HOST_SOVIEZ_DIR:-${HOME}/.soviez}" 2>/dev/null; then
+    LOG_FILE="${HOST_SOVIEZ_DIR:-${HOME}/.soviez}/soviez_setup.log"
+  else
+    LOG_FILE="/tmp/soviez_setup.log"
+  fi
+  touch "${LOG_FILE}" 2>/dev/null || true
 }
 
-require_cmd() {
-  if ! command -v "$1" >/dev/null 2>&1; then
-    log_error "Required command not found: $1"
+log_file() {
+  local ts
+  ts="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+  printf '[%s] %s\n' "${ts}" "$*" >> "${LOG_FILE}" 2>/dev/null || true
+}
+
+ui_info()  { echo -e "${C_CYAN}[INFO]${C_RESET} $*"; log_file "INFO  $*"; }
+ui_ok()    { echo -e "${C_GREEN}[OK]${C_RESET}   $*"; log_file "OK    $*"; }
+ui_warn()  { echo -e "${C_YELLOW}[WARN]${C_RESET} $*"; log_file "WARN  $*"; }
+ui_error() { echo -e "${C_RED}[ERROR]${C_RESET} $*" >&2; log_file "ERROR $*"; }
+ui_wait()  { echo -e "${C_BLUE}[WAIT]${C_RESET} $*"; log_file "WAIT  $*"; }
+
+require_root() {
+  if [[ "${EUID}" -ne 0 ]]; then
+    ui_error "This mode requires root. Re-run with: sudo ./setup.sh $*"
     exit 1
   fi
 }
 
-require_cmd docker
-require_cmd python3
+require_cmd() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    ui_error "Required command not found: $1"
+    exit 1
+  fi
+}
 
+# Spinner + silent command runner (stdout/stderr → log)
+show_progress() {
+  local message="$1"
+  shift
+  local -a cmd=("$@")
+  local spin='|/-\\'
+  local i=0
+  local pid
+  local rc=0
+
+  ensure_log_file
+  ui_wait "${message}"
+  log_file "EXEC  ${cmd[*]}"
+
+  # Run in a subshell so shell functions work; keep spinner on TTY.
+  (
+    "${cmd[@]}"
+  ) >>"${LOG_FILE}" 2>&1 &
+  pid=$!
+
+  if [[ -t 1 ]]; then
+    while kill -0 "${pid}" 2>/dev/null; do
+      printf '\r%s[WAIT]%s %s %s' "${C_BLUE}" "${C_RESET}" "${message}" "${spin:i++%${#spin}:1}"
+      sleep 0.12
+    done
+    printf '\r\033[K'
+  fi
+
+  set +e
+  wait "${pid}"
+  rc=$?
+  set -e
+
+  if (( rc == 0 )); then
+    ui_ok "${message}"
+  else
+    ui_error "${message} (failed — see ${LOG_FILE})"
+  fi
+  return "${rc}"
+}
+
+run_quiet() {
+  log_file "EXEC  $*"
+  "$@" >>"${LOG_FILE}" 2>&1
+}
+
+print_border_box() {
+  local title="$1"
+  shift
+  local line
+  echo ""
+  echo -e "${C_BOLD}${C_CYAN}╔══════════════════════════════════════════════════════════════════════╗${C_RESET}"
+  echo -e "${C_BOLD}${C_CYAN}║${C_RESET}  ${C_BOLD}${title}${C_RESET}"
+  echo -e "${C_BOLD}${C_CYAN}╠══════════════════════════════════════════════════════════════════════╣${C_RESET}"
+  for line in "$@"; do
+    echo -e "${C_BOLD}${C_CYAN}║${C_RESET}  ${line}"
+  done
+  echo -e "${C_BOLD}${C_CYAN}╚══════════════════════════════════════════════════════════════════════╝${C_RESET}"
+  echo ""
+}
+
+print_green_success() {
+  echo ""
+  echo -e "${C_GREEN}${C_BOLD}==============================================================${C_RESET}"
+  echo -e "${C_GREEN}${C_BOLD}  $*${C_RESET}"
+  echo -e "${C_GREEN}${C_BOLD}==============================================================${C_RESET}"
+  echo ""
+}
+
+print_master_password_alert() {
+  local password="$1"
+  local headline="${2:-DATABASE MASTER PASSWORD}"
+  echo ""
+  echo -e "${C_RED}${C_BOLD}!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!${C_RESET}"
+  echo -e "${C_RED}${C_BOLD}!!  ${headline}${C_RESET}"
+  echo -e "${C_RED}${C_BOLD}!!  ${password}${C_RESET}"
+  echo -e "${C_RED}${C_BOLD}!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!${C_RESET}"
+  echo -e "${C_RED}Copy and vault this password now. Required for the Web Database Manager.${C_RESET}"
+  echo -e "${C_DIM}Recover later: sudo ./setup.sh --recoverdbpass${C_RESET}"
+  echo ""
+}
+
+# ---------------------------------------------------------------------------
+# Paths / topology
+# ---------------------------------------------------------------------------
 resolve_instance_root() {
-  # Prefer /root when writable (production appliance); else setup working directory.
   if [[ -n "${SOVIEZ_INSTANCE_ROOT:-}" ]]; then
     printf '%s\n' "${SOVIEZ_INSTANCE_ROOT}"
     return 0
@@ -107,7 +234,6 @@ resolve_instance_root() {
 }
 
 resolve_host_soviez_dir() {
-  # Host-side security ledger (~/.soviez) — must persist across container recycles.
   if [[ -n "${SOVIEZ_HOST_LEDGER_DIR:-}" ]]; then
     printf '%s\n' "${SOVIEZ_HOST_LEDGER_DIR}"
     return 0
@@ -127,23 +253,13 @@ INSTANCE_ROOT="$(resolve_instance_root)"
 HOST_SOVIEZ_DIR="$(resolve_host_soviez_dir)"
 
 ensure_host_ledger_dir() {
-  # CRITICAL: create hardened host ledger before any container spawn so
-  # .shadow_lock / .deployment_ledger survive --update / recreate cycles.
   mkdir -p "${HOST_SOVIEZ_DIR}"
   chmod 700 "${HOST_SOVIEZ_DIR}"
-  log_info "Host security ledger ready: ${HOST_SOVIEZ_DIR} → /root/.soviez (mode 700)"
+  log_file "Host ledger ready: ${HOST_SOVIEZ_DIR}"
 }
 
-# Initialize host ledger immediately — before any docker run / compose path.
-ensure_host_ledger_dir
-
-# ---------------------------------------------------------------------------
-# Port occupancy probe — ss → netstat → bash /dev/tcp
-# Returns 0 when busy, 1 when free.
-# ---------------------------------------------------------------------------
 is_port_busy() {
   local port="$1"
-
   if command -v ss >/dev/null 2>&1; then
     if ss -H -ltn "sport = :${port}" 2>/dev/null | grep -q .; then
       return 0
@@ -153,14 +269,12 @@ is_port_busy() {
     fi
     return 1
   fi
-
   if command -v netstat >/dev/null 2>&1; then
     if netstat -ltn 2>/dev/null | awk '{print $4}' | grep -Eq "[:.]${port}$"; then
       return 0
     fi
     return 1
   fi
-
   if (echo >/dev/tcp/127.0.0.1/"${port}") >/dev/null 2>&1; then
     return 0
   fi
@@ -172,14 +286,14 @@ find_free_host_port() {
   local port="${start}"
   while (( port <= PORT_SCAN_MAX )); do
     if is_port_busy "${port}"; then
-      log_warn "Port ${port} is busy, probing next system socket..."
+      log_file "Port ${port} busy — probing next"
       port=$((port + 1))
     else
       echo "${port}"
       return 0
     fi
   done
-  log_error "No free TCP port available in range ${start}-${PORT_SCAN_MAX}."
+  ui_error "No free TCP port in range ${start}-${PORT_SCAN_MAX}."
   return 1
 }
 
@@ -215,10 +329,6 @@ persist_env_key() {
   chmod 600 "${ENV_FILE}"
 }
 
-persist_host_port() {
-  persist_env_key "SOVIEZ_HOST_PORT" "$1"
-}
-
 load_env_file() {
   # shellcheck disable=SC1090
   set -a
@@ -228,16 +338,15 @@ load_env_file() {
 }
 
 container_exists() {
-  docker ps -a --format '{{.Names}}' | grep -Fxq "$1"
+  docker ps -a --format '{{.Names}}' 2>/dev/null | grep -Fxq "$1"
 }
 
 container_running() {
-  docker ps --format '{{.Names}}' | grep -Fxq "$1"
+  docker ps --format '{{.Names}}' 2>/dev/null | grep -Fxq "$1"
 }
 
 apply_topology_primary() {
   ENV_FILE="$(pwd)/.soviez.env"
-  # Prefer /root primary env when present (appliance layout).
   if [[ -f "${INSTANCE_ROOT}/.soviez.env" ]]; then
     ENV_FILE="${INSTANCE_ROOT}/.soviez.env"
   elif [[ ! -f "${ENV_FILE}" && -f ".soviez.env" ]]; then
@@ -249,6 +358,7 @@ apply_topology_primary() {
   DB_VOLUME="soviez_db_data"
   FILESTORE_VOLUME="soviez_filestore"
   INSTANCE_INDEX=""
+  CUSTOM_ADDONS_HOST_PATH=""
   PORT_SCAN_START="${PRIMARY_PORT_START}"
 }
 
@@ -261,20 +371,13 @@ apply_topology_indexed() {
   WEB_CONTAINER="soviez-web-${index}"
   DB_VOLUME="soviez_db_data_${index}"
   FILESTORE_VOLUME="soviez_filestore_${index}"
+  CUSTOM_ADDONS_HOST_PATH="/etc/soviez_web_${index}/addons"
   PORT_SCAN_START="${MULTI_PORT_START}"
 }
 
 find_next_instance_index() {
   local max=0
   local path base num
-  local has_primary=0
-
-  if [[ -f "${INSTANCE_ROOT}/.soviez.env" || -f "$(pwd)/.soviez.env" ]]; then
-    has_primary=1
-  fi
-  if container_exists "soviez-web" || container_exists "soviez-db"; then
-    has_primary=1
-  fi
 
   shopt -s nullglob
   for path in \
@@ -291,7 +394,6 @@ find_next_instance_index() {
   done
   shopt -u nullglob
 
-  # Also scan running/stopped indexed web containers.
   while IFS= read -r name; do
     [[ -z "${name}" ]] && continue
     if [[ "${name}" =~ ^soviez-web-([0-9]+)$ ]]; then
@@ -304,68 +406,38 @@ find_next_instance_index() {
 
   if (( max >= 1 )); then
     echo $((max + 1))
-  elif (( has_primary == 1 )); then
-    echo 1
   else
-    # No primary yet — still start indexed fleet at 1 per --new contract.
     echo 1
   fi
 }
 
-print_master_password_alert() {
-  local password="$1"
-  local headline="${2:-DATABASE MASTER PASSWORD}"
-  local RED=$'\033[0;31m'
-  local BOLD=$'\033[1m'
-  local NC=$'\033[0m'
-
-  echo ""
-  echo -e "${RED}${BOLD}!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!${NC}"
-  echo -e "${RED}${BOLD}!!                                                            !!${NC}"
-  echo -e "${RED}${BOLD}!!  ${headline}${NC}"
-  echo -e "${RED}${BOLD}!!                                                            !!${NC}"
-  echo -e "${RED}${BOLD}!!  ${password}${NC}"
-  echo -e "${RED}${BOLD}!!                                                            !!${NC}"
-  echo -e "${RED}${BOLD}!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!${NC}"
-  echo -e "${RED}${BOLD}WARNING:${NC} ${RED}Copy and save this Database Master Password NOW.${NC}"
-  echo -e "${RED}It is required to provision databases and manage system assets${NC}"
-  echo -e "${RED}in the Web Database Manager. Store it in your password vault.${NC}"
-  echo -e "${RED}It will not be shown again unless you run:${NC}"
-  echo -e "${RED}  ./setup.sh --recoverdbpass${NC}"
-  echo ""
-}
-
+# ---------------------------------------------------------------------------
+# Docker / DB / web lifecycle (shared by --new / --update / --recover)
+# ---------------------------------------------------------------------------
 ensure_network_and_volumes() {
-  log_info "Ensuring private bridge network '${NETWORK_NAME}'..."
-  docker network create "${NETWORK_NAME}" 2>/dev/null || true
-
-  log_info "Ensuring persistent volumes..."
+  docker network create "${NETWORK_NAME}" >>"${LOG_FILE}" 2>&1 || true
   docker volume create "${DB_VOLUME}" >/dev/null
   docker volume create "${FILESTORE_VOLUME}" >/dev/null
 }
 
 wait_for_postgres() {
-  log_info "Waiting for PostgreSQL readiness (${DB_CONTAINER})..."
-  for _ in $(seq 1 45); do
+  local i
+  for i in $(seq 1 45); do
     if docker exec "${DB_CONTAINER}" pg_isready -U soviez -d postgres >/dev/null 2>&1; then
-      log_info "PostgreSQL is ready."
       return 0
     fi
     sleep 1
   done
-  log_error "PostgreSQL did not become ready in time. Inspect: docker logs ${DB_CONTAINER}"
+  ui_error "PostgreSQL did not become ready. Inspect: docker logs ${DB_CONTAINER}"
   return 1
 }
 
 ensure_postgres_container() {
   if container_running "${DB_CONTAINER}"; then
-    log_info "Database container '${DB_CONTAINER}' already running — leaving it in place."
+    log_file "DB ${DB_CONTAINER} already running"
   elif container_exists "${DB_CONTAINER}"; then
-    log_info "Starting existing database container '${DB_CONTAINER}'..."
     docker start "${DB_CONTAINER}" >/dev/null
   else
-    log_info "Launching PostgreSQL (${DB_CONTAINER}) image ${DB_IMAGE} on ${NETWORK_NAME}..."
-    # POSTGRES_DB=postgres: do NOT pre-create an empty application schema.
     docker run -d \
       --name "${DB_CONTAINER}" \
       --restart unless-stopped \
@@ -380,17 +452,48 @@ ensure_postgres_container() {
   wait_for_postgres
 }
 
+ensure_custom_addons_dir() {
+  if [[ -z "${CUSTOM_ADDONS_HOST_PATH}" ]]; then
+    return 0
+  fi
+  mkdir -p "${CUSTOM_ADDONS_HOST_PATH}"
+  chmod 755 "$(dirname "${CUSTOM_ADDONS_HOST_PATH}")" 2>/dev/null || true
+  chmod 755 "${CUSTOM_ADDONS_HOST_PATH}"
+  # Friendly README on first create
+  if [[ ! -f "${CUSTOM_ADDONS_HOST_PATH}/README.txt" ]]; then
+    cat > "${CUSTOM_ADDONS_HOST_PATH}/README.txt" <<EOF
+Soviez ERP — custom addons drop folder for ${WEB_CONTAINER}
+
+Place Odoo/Soviez modules here (each module in its own subdirectory).
+They are mounted read/write into the container at:
+  ${CUSTOM_ADDONS_CONTAINER_PATH}
+
+After dropping a module, update the database apps list from the UI
+or run: sudo ./setup.sh --update
+EOF
+  fi
+}
+
 launch_web_container() {
-  log_info "Launching Soviez ERP (${WEB_CONTAINER}) image ${APP_IMAGE}..."
-  log_info "Host publish map: ${SOVIEZ_HOST_PORT} → container 8069"
-  log_info "Pinned MAC address: ${SOVIEZ_CONTAINER_MAC}"
-  log_info "DB host (cluster DNS): ${DB_CONTAINER}"
-  log_info "Security ledger bind: ${HOST_SOVIEZ_DIR} → /root/.soviez"
+  local addons_cli
+  local -a volume_args=()
 
   ensure_host_ledger_dir
+  ensure_custom_addons_dir
 
-  # Do not set POSTGRES_DB on the web container — Odoo must boot with an empty
-  # database list and present the interactive Web Database Manager.
+  volume_args+=(
+    -v "${FILESTORE_VOLUME}:/root/.local/share/Odoo/filestore"
+    -v "${HOST_SOVIEZ_DIR}:/root/.soviez"
+  )
+
+  addons_cli="/opt/soviez-erp/addons,/opt/soviez-erp/odoo/addons"
+  if [[ -n "${CUSTOM_ADDONS_HOST_PATH}" ]]; then
+    volume_args+=(
+      -v "${CUSTOM_ADDONS_HOST_PATH}:${CUSTOM_ADDONS_CONTAINER_PATH}"
+    )
+    addons_cli="${addons_cli},${CUSTOM_ADDONS_CONTAINER_PATH}"
+  fi
+
   docker run -d \
     --name "${WEB_CONTAINER}" \
     --restart unless-stopped \
@@ -400,10 +503,10 @@ launch_web_container() {
     -e POSTGRES_USER=soviez \
     -e POSTGRES_PASSWORD="${SOVIEZ_DB_PASSWORD}" \
     -e PASSWORD="${SOVIEZ_DB_PASSWORD}" \
-    -v "${FILESTORE_VOLUME}:/root/.local/share/Odoo/filestore" \
-    -v "${HOST_SOVIEZ_DIR}:/root/.soviez" \
+    "${volume_args[@]}" \
     "${APP_IMAGE}" \
     python3 soviez-bin -c /opt/soviez-erp/soviez.conf \
+      --addons-path="${addons_cli}" \
       --db_host="${DB_CONTAINER}" \
       --db_port=5432 \
       --db_user=soviez \
@@ -413,7 +516,6 @@ launch_web_container() {
 }
 
 list_odoo_databases() {
-  # Prefer explicit override, else discover non-template app DBs on the cluster.
   if [[ -n "${SOVIEZ_DB_NAME:-}" ]]; then
     printf '%s\n' "${SOVIEZ_DB_NAME}"
     return 0
@@ -425,11 +527,8 @@ list_odoo_databases() {
 }
 
 purge_frontend_assets() {
-  # Force libsass / web.assets_* recompile so premium login SCSS and UI bundles
-  # are never served stale after --update.
   local dbname="$1"
-  log_info "Purging compiled frontend assets for '${dbname}' (force layout recompile)..."
-  if ! docker exec "${DB_CONTAINER}" \
+  docker exec "${DB_CONTAINER}" \
     psql -U soviez -d "${dbname}" -v ON_ERROR_STOP=1 -c \
     "DELETE FROM ir_attachment
      WHERE url LIKE '/web/assets/%'
@@ -437,11 +536,7 @@ purge_frontend_assets() {
         OR name ILIKE 'web.assets_%'
         OR name ILIKE 'web_enterprise.assets_%'
         OR name ILIKE '%.assets_%.min.js'
-        OR name ILIKE '%.assets_%.min.css';" >/dev/null; then
-    log_error "Frontend asset purge failed for database '${dbname}'."
-    return 1
-  fi
-  log_info "Frontend asset cache cleared for '${dbname}'."
+        OR name ILIKE '%.assets_%.min.css';" >/dev/null
 }
 
 run_schema_upgrades() {
@@ -449,35 +544,41 @@ run_schema_upgrades() {
   local dbs
   local count=0
   local upgrade_rc=0
+  local addons_cli="/opt/soviez-erp/addons,/opt/soviez-erp/odoo/addons"
+  local -a volume_args=(
+    -v "${FILESTORE_VOLUME}:/root/.local/share/Odoo/filestore"
+    -v "${HOST_SOVIEZ_DIR}:/root/.soviez"
+  )
 
   ensure_host_ledger_dir
+  if [[ -n "${CUSTOM_ADDONS_HOST_PATH}" && -d "${CUSTOM_ADDONS_HOST_PATH}" ]]; then
+    volume_args+=(-v "${CUSTOM_ADDONS_HOST_PATH}:${CUSTOM_ADDONS_CONTAINER_PATH}")
+    addons_cli="${addons_cli},${CUSTOM_ADDONS_CONTAINER_PATH}"
+  fi
 
   mapfile -t dbs < <(list_odoo_databases)
   if ((${#dbs[@]} == 0)); then
-    log_warn "No application databases found to upgrade — skipping -u migration pass."
-    log_warn "Create a database via the Web Database Manager, then re-run ./setup.sh --update."
+    ui_warn "No application databases found — skipping schema upgrade."
     return 0
   fi
 
   for dbname in "${dbs[@]}"; do
     [[ -z "${dbname}" ]] && continue
-    # Sanitize: allow only common Odoo DB name characters.
     if [[ ! "${dbname}" =~ ^[A-Za-z0-9_:-]+$ ]]; then
-      log_error "Refusing to upgrade unsafe database name: ${dbname}"
+      ui_error "Refusing unsafe database name: ${dbname}"
       return 1
     fi
     count=$((count + 1))
-    log_info "Running schema upgrade on database '${dbname}' (modules: ${UPGRADE_MODULES})..."
     set +e
     docker run --rm \
       --network "${NETWORK_NAME}" \
       --mac-address "${SOVIEZ_CONTAINER_MAC}" \
       -e POSTGRES_USER=soviez \
       -e POSTGRES_PASSWORD="${SOVIEZ_DB_PASSWORD}" \
-      -v "${FILESTORE_VOLUME}:/root/.local/share/Odoo/filestore" \
-      -v "${HOST_SOVIEZ_DIR}:/root/.soviez" \
+      "${volume_args[@]}" \
       "${APP_IMAGE}" \
       python3 soviez-bin -c /opt/soviez-erp/soviez.conf \
+        --addons-path="${addons_cli}" \
         --db_host="${DB_CONTAINER}" \
         --db_port=5432 \
         --db_user=soviez \
@@ -486,142 +587,368 @@ run_schema_upgrades() {
         --admin-passwd="${SOVIEZ_ADMIN_PASSWORD}" \
         -d "${dbname}" \
         -u "${UPGRADE_MODULES}" \
-        --stop-after-init
+        --stop-after-init >>"${LOG_FILE}" 2>&1
     upgrade_rc=$?
     set -e
     if (( upgrade_rc != 0 )); then
-      log_error "Schema upgrade failed for '${dbname}' (exit ${upgrade_rc})."
-      log_error "Web runner stays offline until ./setup.sh --update succeeds."
+      ui_error "Schema upgrade failed for '${dbname}' (exit ${upgrade_rc})."
       return "${upgrade_rc}"
     fi
-    log_info "Schema upgrade finished for '${dbname}'."
     purge_frontend_assets "${dbname}" || return 1
   done
-
-  log_info "Upgraded ${count} database(s) with frontend asset purge."
+  log_file "Upgraded ${count} database(s)"
 }
 
 require_complete_env() {
   if [[ -z "${SOVIEZ_CONTAINER_MAC:-}" || -z "${SOVIEZ_DB_PASSWORD:-}" || -z "${SOVIEZ_HOST_PORT:-}" || -z "${SOVIEZ_ADMIN_PASSWORD:-}" ]]; then
-    log_error "${ENV_FILE} is missing SOVIEZ_CONTAINER_MAC, SOVIEZ_DB_PASSWORD, SOVIEZ_ADMIN_PASSWORD, or SOVIEZ_HOST_PORT."
+    ui_error "${ENV_FILE} is missing required secrets (MAC / DB password / admin password / host port)."
     exit 1
   fi
 }
 
-# ===========================================================================
-# MODE: recover — rotate master password on primary cluster
-# ===========================================================================
-if [[ "${MODE}" == "recover" ]]; then
-  apply_topology_primary
-  if [[ ! -f "${ENV_FILE}" ]]; then
-    log_error "No Soviez ERP installation found to recover."
+# ---------------------------------------------------------------------------
+# Public IP / DNS / Nginx / Certbot / UFW  (--init / --new)
+# ---------------------------------------------------------------------------
+detect_public_ip() {
+  local ip=""
+  if command -v curl >/dev/null 2>&1; then
+    ip="$(curl -fsS --max-time 8 https://api.ipify.org 2>/dev/null || true)"
+  fi
+  if [[ -z "${ip}" ]]; then
+    ip="$(python3 - <<'PY' 2>/dev/null || true
+import urllib.request
+print(urllib.request.urlopen("https://api.ipify.org", timeout=8).read().decode().strip())
+PY
+)"
+  fi
+  if [[ -z "${ip}" ]]; then
+    ui_error "Could not detect public IP (api.ipify.org unreachable)."
     exit 1
   fi
+  printf '%s\n' "${ip}"
+}
 
-  load_env_file
-  if [[ -z "${SOVIEZ_CONTAINER_MAC:-}" || -z "${SOVIEZ_DB_PASSWORD:-}" || -z "${SOVIEZ_HOST_PORT:-}" ]]; then
-    log_error "${ENV_FILE} is incomplete — cannot recover master password."
-    exit 1
-  fi
+resolve_domain_ips() {
+  local domain="$1"
+  python3 - "${domain}" <<'PY'
+import socket
+import sys
+domain = sys.argv[1]
+try:
+    infos = socket.getaddrinfo(domain, None)
+except Exception:
+    sys.exit(2)
+ips = sorted({i[4][0] for i in infos if i[4] and i[4][0]})
+print("\n".join(ips))
+PY
+}
 
-  log_info "Rotating Database Master Password (SOVIEZ_ADMIN_PASSWORD)..."
-  SOVIEZ_ADMIN_PASSWORD="$(generate_password)"
-  persist_env_key "SOVIEZ_ADMIN_PASSWORD" "${SOVIEZ_ADMIN_PASSWORD}"
-  load_env_file
+normalize_domain() {
+  local d="$1"
+  d="${d,,}"
+  d="${d#http://}"
+  d="${d#https://}"
+  d="${d%%/*}"
+  d="${d%%:*}"
+  printf '%s\n' "${d}"
+}
 
-  ensure_network_and_volumes
-  log_info "Recycling application container '${WEB_CONTAINER}'..."
-  docker rm -f "${WEB_CONTAINER}" 2>/dev/null || true
-  log_info "Pulling application image ${APP_IMAGE}..."
-  docker pull "${APP_IMAGE}"
-  launch_web_container
-
-  print_master_password_alert \
-    "${SOVIEZ_ADMIN_PASSWORD}" \
-    "MASTER PASSWORD RESET — APPLICATION LAYER RECYCLED"
-  log_info "Master Password successfully reset. Existing databases and volumes were preserved."
-  log_info "UI: http://localhost:${SOVIEZ_HOST_PORT}"
-  exit 0
-fi
-
-# ===========================================================================
-# MODE: update — pull :latest, upgrade schemas, recycle web
-# ===========================================================================
-if [[ "${MODE}" == "update" ]]; then
-  apply_topology_primary
-  if [[ ! -f "${ENV_FILE}" ]]; then
-    log_error "No Soviez ERP installation found to update."
-    log_error "Missing baseline environment file: ${ENV_FILE}"
-    exit 1
-  fi
-
-  log_info "Loading baseline parameters from ${ENV_FILE}..."
-  load_env_file
-  require_complete_env
-
-  # Restore topology names if persisted in env (future-proof).
-  NETWORK_NAME="${SOVIEZ_NETWORK_NAME:-${NETWORK_NAME}}"
-  DB_CONTAINER="${SOVIEZ_DB_CONTAINER:-${DB_CONTAINER}}"
-  WEB_CONTAINER="${SOVIEZ_WEB_CONTAINER:-${WEB_CONTAINER}}"
-  DB_VOLUME="${SOVIEZ_DB_VOLUME:-${DB_VOLUME}}"
-  FILESTORE_VOLUME="${SOVIEZ_FILESTORE_VOLUME:-${FILESTORE_VOLUME}}"
-
-  log_info "Force-pulling rolling images..."
-  docker pull "${APP_IMAGE}"
-  docker pull "${DB_IMAGE}"
-
-  ensure_network_and_volumes
-  if ! container_running "${DB_CONTAINER}"; then
-    if container_exists "${DB_CONTAINER}"; then
-      docker start "${DB_CONTAINER}" >/dev/null
-    else
-      log_error "Database container '${DB_CONTAINER}' not found — cannot upgrade schemas."
-      exit 1
+prompt_domain_confirmed() {
+  local d1 d2
+  while true; do
+    echo ""
+    read -r -p "🌐  Enter your domain or subdomain: " d1
+    d1="$(normalize_domain "${d1}")"
+    if [[ -z "${d1}" || ! "${d1}" =~ ^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$ ]]; then
+      ui_warn "Invalid domain. Example: erp.example.com"
+      continue
     fi
+    read -r -p "🔁  Confirm domain (type again): " d2
+    d2="$(normalize_domain "${d2}")"
+    if [[ "${d1}" != "${d2}" ]]; then
+      ui_warn "Domains did not match. Try again."
+      continue
+    fi
+    TENANT_DOMAIN="${d1}"
+    return 0
+  done
+}
+
+dns_validation_loop() {
+  local public_ip="$1"
+  local domain="$2"
+  local resolved
+  local answer
+
+  while true; do
+    ui_wait "Checking DNS for ${domain} → ${public_ip}..."
+    set +e
+    resolved="$(resolve_domain_ips "${domain}" 2>/dev/null)"
+    local rc=$?
+    set -e
+
+    if (( rc == 0 )) && printf '%s\n' "${resolved}" | grep -Fxq "${public_ip}"; then
+      ui_ok "DNS matched — ${domain} resolves to ${public_ip}"
+      return 0
+    fi
+
+    echo ""
+    ui_warn "Domain is not pointed to this IP yet. DNS propagation can take up to 48 hours."
+    if [[ -n "${resolved}" ]]; then
+      echo -e "  ${C_DIM}Currently resolves to:${C_RESET} ${resolved//$'\n'/, }"
+    else
+      echo -e "  ${C_DIM}Currently resolves to:${C_RESET} (none / NXDOMAIN)"
+    fi
+    echo -e "  ${C_DIM}Expected Public IP:${C_RESET} ${public_ip}"
+    echo ""
+    read -r -p "Retry DNS check now? (y/n) — or type 'force' to override: " answer
+    answer="${answer,,}"
+    case "${answer}" in
+      y|yes) continue ;;
+      force)
+        ui_warn "Operator force-override accepted — continuing without verified DNS."
+        return 0
+        ;;
+      *)
+        ui_error "DNS not verified. Exiting. Re-run ./setup.sh --new when ready."
+        exit 1
+        ;;
+    esac
+  done
+}
+
+configure_nginx_global_limits() {
+  mkdir -p /etc/nginx/conf.d
+  cat > "${NGINX_LIMITS_CONF}" <<'EOF'
+# Soviez ERP — global proxy limits for heavy ERP/Odoo traffic
+client_max_body_size 512M;
+proxy_read_timeout 720s;
+proxy_connect_timeout 720s;
+proxy_send_timeout 720s;
+
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+EOF
+  if ! nginx -t >>"${LOG_FILE}" 2>&1; then
+    ui_error "Nginx configuration test failed after writing ${NGINX_LIMITS_CONF}"
+    return 1
   fi
-  wait_for_postgres
+  systemctl reload nginx >>"${LOG_FILE}" 2>&1 || systemctl start nginx >>"${LOG_FILE}" 2>&1 || true
+}
 
-  # Pre-upgrade isolation: stop live workers so maintenance -u does not contend
-  # on global tables (res.partner / res.users / portal) with active HTTP sockets.
-  log_info "Opening maintenance window — stopping live web runner '${WEB_CONTAINER}' to release DB locks..."
-  docker stop "${WEB_CONTAINER}" 2>/dev/null || true
-  docker rm -f "${WEB_CONTAINER}" 2>/dev/null || true
+write_nginx_site() {
+  local domain="$1"
+  local host_port="$2"
+  local site_file="/etc/nginx/sites-available/soviez-${domain}.conf"
+  local enabled_link="/etc/nginx/sites-enabled/soviez-${domain}.conf"
 
-  log_info "Starting maintenance schema upgrade (exclusive DB access; modules: ${UPGRADE_MODULES})..."
-  if ! run_schema_upgrades; then
-    log_error "Automated schema upgrade aborted — '${WEB_CONTAINER}' remains offline."
-    log_error "Fix the upgrade failure, then re-run: ./setup.sh --update"
+  cat > "${site_file}" <<EOF
+# Soviez ERP tenant — ${domain} → 127.0.0.1:${host_port}
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${domain};
+
+    client_max_body_size 512M;
+
+    proxy_read_timeout 720s;
+    proxy_connect_timeout 720s;
+    proxy_send_timeout 720s;
+
+    location / {
+        proxy_pass http://127.0.0.1:${host_port};
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection \$connection_upgrade;
+        proxy_redirect off;
+    }
+
+    location /websocket {
+        proxy_pass http://127.0.0.1:${host_port};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection \$connection_upgrade;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 720s;
+    }
+}
+EOF
+
+  ln -sfn "${site_file}" "${enabled_link}"
+  # Disable default site when present (idempotent)
+  rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
+
+  if ! nginx -t >>"${LOG_FILE}" 2>&1; then
+    ui_error "Nginx site config failed for ${domain}"
+    return 1
+  fi
+  systemctl reload nginx >>"${LOG_FILE}" 2>&1
+}
+
+install_docker_engine() {
+  if command -v docker >/dev/null 2>&1; then
+    local ver major
+    ver="$(docker version --format '{{.Server.Version}}' 2>/dev/null || docker --version | awk '{print $3}' | tr -d ',')"
+    major="${ver%%.*}"
+    if [[ "${major}" =~ ^[0-9]+$ ]] && (( major >= 20 )); then
+      ui_ok "Docker ${ver} already installed"
+      systemctl enable --now docker >>"${LOG_FILE}" 2>&1 || true
+      return 0
+    fi
+    ui_warn "Docker ${ver} is outdated — upgrading via official convenience script..."
+  else
+    ui_wait "Docker not found — installing via official convenience script..."
+  fi
+
+  show_progress "Installing Docker Engine..." bash -c \
+    'curl -fsSL https://get.docker.com | sh' || {
+      ui_error "Docker installation failed — see ${LOG_FILE}"
+      exit 1
+    }
+  systemctl enable --now docker >>"${LOG_FILE}" 2>&1
+  ui_ok "Docker Engine ready"
+}
+
+ensure_ufw() {
+  if ! command -v ufw >/dev/null 2>&1; then
+    show_progress "Installing UFW..." apt-get install -y ufw || return 1
+  fi
+  # Open required ports BEFORE enabling (preserve SSH)
+  ufw allow 22/tcp >>"${LOG_FILE}" 2>&1 || true
+  ufw allow OpenSSH >>"${LOG_FILE}" 2>&1 || true
+  ufw allow 80/tcp >>"${LOG_FILE}" 2>&1 || true
+  ufw allow 443/tcp >>"${LOG_FILE}" 2>&1 || true
+  ufw --force enable >>"${LOG_FILE}" 2>&1 || true
+  ui_ok "UFW active — ports 22 / 80 / 443 allowed"
+}
+
+print_elite_welcome() {
+  local domain="$1"
+  local addons_path="$2"
+  local admin_password="$3"
+  local index="$4"
+
+  clear 2>/dev/null || true
+  echo ""
+  echo -e "${C_GREEN}${C_BOLD}"
+  cat <<'BANNER'
+   ███████╗ ██████╗ ██╗   ██╗██╗███████╗███████╗
+   ██╔════╝██╔═══██╗██║   ██║██║██╔════╝╚══███╔╝
+   ███████╗██║   ██║██║   ██║██║█████╗    ███╔╝
+   ╚════██║██║   ██║╚██╗ ██╔╝██║██╔══╝   ███╔╝
+   ███████║╚██████╔╝ ╚████╔╝ ██║███████╗███████╗
+   ╚══════╝ ╚═════╝   ╚═══╝  ╚═╝╚══════╝╚══════╝
+            E R P   E C O S Y S T E M
+BANNER
+  echo -e "${C_RESET}"
+  echo -e "  ${C_GREEN}✔${C_RESET}  ${C_BOLD}Welcome to the Soviez ERP ecosystem!${C_RESET}"
+  echo -e "  ${C_GREEN}✔${C_RESET}  Tenant instance #${index} is live and secured."
+  echo ""
+  echo -e "  ${C_BOLD}Live URL${C_RESET}"
+  echo -e "     ${C_CYAN}https://${domain}${C_RESET}"
+  echo ""
+  echo -e "  ${C_BOLD}Custom addons folder${C_RESET}"
+  echo -e "     ${C_CYAN}${addons_path}${C_RESET}"
+  echo -e "     ${C_DIM}Drop Odoo modules here, then refresh Apps or run ./setup.sh --update${C_RESET}"
+  echo ""
+  print_master_password_alert \
+    "${admin_password}" \
+    "INSTANCE #${index} — DATABASE MASTER PASSWORD (SAVE THIS NOW)"
+  echo -e "  ${C_DIM}Full setup log: ${LOG_FILE}${C_RESET}"
+  echo ""
+}
+
+# ===========================================================================
+# MODE: init — host environment only
+# ===========================================================================
+mode_init() {
+  require_root --init
+  ensure_log_file
+  export DEBIAN_FRONTEND=noninteractive
+
+  print_border_box "Soviez ERP — Host Initialization" \
+    "Preparing a production-ready Ubuntu/Debian appliance." \
+    "Containers are NOT launched in this mode." \
+    "After success, provision tenants with: ./setup.sh --new"
+
+  show_progress "Updating system components..." bash -c \
+    'apt-get update -y && apt-get upgrade -y' || {
+      ui_error "System update failed — see ${LOG_FILE}"
+      exit 1
+    }
+
+  show_progress "Installing base utilities (curl, ca-certificates)..." \
+    apt-get install -y curl ca-certificates gnupg lsb-release || true
+
+  install_docker_engine
+
+  if ! command -v nginx >/dev/null 2>&1; then
+    show_progress "Installing Nginx..." apt-get install -y nginx || exit 1
+  else
+    ui_ok "Nginx already installed"
+  fi
+  systemctl enable --now nginx >>"${LOG_FILE}" 2>&1 || true
+  show_progress "Applying Nginx ERP traffic limits..." configure_nginx_global_limits
+
+  show_progress "Installing Certbot (nginx plugin)..." \
+    apt-get install -y certbot python3-certbot-nginx || exit 1
+
+  ensure_ufw
+
+  print_green_success "Host environment successfully initialized!"
+  echo -e "  You can now provision instances using:"
+  echo -e "    ${C_BOLD}sudo ./setup.sh --new${C_RESET}"
+  echo -e "  Log file: ${C_DIM}${LOG_FILE}${C_RESET}"
+  echo ""
+}
+
+# ===========================================================================
+# MODE: new — tenant provisioning
+# ===========================================================================
+mode_new() {
+  require_root --new
+  ensure_log_file
+  require_cmd docker
+  require_cmd python3
+  ensure_host_ledger_dir
+
+  if ! command -v nginx >/dev/null 2>&1 || ! command -v certbot >/dev/null 2>&1; then
+    ui_error "Host not initialized. Run first: sudo ./setup.sh --init"
     exit 1
   fi
 
-  log_info "Maintenance upgrades clean — relaunching live web runner '${WEB_CONTAINER}'..."
-  launch_web_container
+  local public_ip next_index
+  public_ip="$(detect_public_ip)"
 
-  print_green_success "Core schema upgrade finished — cluster recycled on ${APP_IMAGE}"
-  log_info "UI: http://localhost:${SOVIEZ_HOST_PORT}"
-  log_info "    http://<your-server-ip>:${SOVIEZ_HOST_PORT}"
-  log_info "Environment: ${ENV_FILE}"
-  log_info "Security ledger: ${HOST_SOVIEZ_DIR}"
-  exit 0
-fi
+  print_border_box "Welcome to Soviez ERP Tenant Provisioning" \
+    "To proceed, you need a domain or subdomain pointed to this server's" \
+    "Public IP: ${C_BOLD}${public_ip}${C_RESET}" \
+    "" \
+    "This wizard will create an isolated container stack + HTTPS site."
 
-# ===========================================================================
-# MODE: new — provision next isolated multi-tenant instance
-# ===========================================================================
-if [[ "${MODE}" == "new" ]]; then
+  prompt_domain_confirmed
+  dns_validation_loop "${public_ip}" "${TENANT_DOMAIN}"
+
   mkdir -p "${INSTANCE_ROOT}"
-  NEXT_INDEX="$(find_next_instance_index)"
-  apply_topology_indexed "${NEXT_INDEX}"
+  next_index="$(find_next_instance_index)"
+  apply_topology_indexed "${next_index}"
 
   if [[ -f "${ENV_FILE}" ]]; then
-    log_error "Target environment already exists: ${ENV_FILE}"
+    ui_error "Target environment already exists: ${ENV_FILE}"
     exit 1
   fi
 
-  log_info "Provisioning isolated multi-tenant instance index=${NEXT_INDEX}"
-  log_info "Instance root: ${INSTANCE_ROOT}"
-  log_info "Environment sheet: ${ENV_FILE}"
-  log_info "Hunting free host TCP port from ${MULTI_PORT_START}..."
+  ui_info "Provisioning isolated tenant index=${next_index} (${WEB_CONTAINER})"
+  ensure_custom_addons_dir
 
   SOVIEZ_CONTAINER_MAC="$(generate_mac)"
   SOVIEZ_DB_PASSWORD="$(generate_password)"
@@ -629,7 +956,7 @@ if [[ "${MODE}" == "new" ]]; then
   SOVIEZ_HOST_PORT="$(find_free_host_port "${MULTI_PORT_START}")"
 
   cat > "${ENV_FILE}" <<EOF
-SOVIEZ_INSTANCE_INDEX=${NEXT_INDEX}
+SOVIEZ_INSTANCE_INDEX=${next_index}
 SOVIEZ_HOST_PORT=${SOVIEZ_HOST_PORT}
 SOVIEZ_CONTAINER_MAC=${SOVIEZ_CONTAINER_MAC}
 SOVIEZ_DB_PASSWORD=${SOVIEZ_DB_PASSWORD}
@@ -639,131 +966,205 @@ SOVIEZ_DB_CONTAINER=${DB_CONTAINER}
 SOVIEZ_WEB_CONTAINER=${WEB_CONTAINER}
 SOVIEZ_DB_VOLUME=${DB_VOLUME}
 SOVIEZ_FILESTORE_VOLUME=${FILESTORE_VOLUME}
+SOVIEZ_CUSTOM_ADDONS_HOST=${CUSTOM_ADDONS_HOST_PATH}
+SOVIEZ_CUSTOM_ADDONS_MOUNT=${CUSTOM_ADDONS_CONTAINER_PATH}
+SOVIEZ_TENANT_DOMAIN=${TENANT_DOMAIN}
+SOVIEZ_PUBLIC_IP=${public_ip}
 EOF
   chmod 600 "${ENV_FILE}"
 
-  log_info "Wrote ${ENV_FILE}"
-  log_info "Assets: ${WEB_CONTAINER} / ${DB_CONTAINER} / ${NETWORK_NAME} / ${DB_VOLUME}"
+  show_progress "Pulling container images..." bash -c \
+    "docker pull '${APP_IMAGE}' && docker pull '${DB_IMAGE}'"
 
-  log_info "Pulling rolling images ${APP_IMAGE} + ${DB_IMAGE}..."
-  docker pull "${APP_IMAGE}"
-  docker pull "${DB_IMAGE}"
-
-  ensure_network_and_volumes
-  ensure_postgres_container
+  show_progress "Creating network and volumes..." ensure_network_and_volumes
+  show_progress "Starting PostgreSQL (${DB_CONTAINER})..." ensure_postgres_container
 
   if container_exists "${WEB_CONTAINER}"; then
-    docker rm -f "${WEB_CONTAINER}" >/dev/null
+    docker rm -f "${WEB_CONTAINER}" >/dev/null 2>&1 || true
   fi
-  launch_web_container
+  show_progress "Launching Soviez ERP (${WEB_CONTAINER})..." launch_web_container
 
-  log_info "Isolated instance launch complete."
-  log_info "UI: http://localhost:${SOVIEZ_HOST_PORT}"
-  log_info "    http://<your-server-ip>:${SOVIEZ_HOST_PORT}"
-  log_info "Environment locked at: ${ENV_FILE}"
+  show_progress "Writing Nginx site for ${TENANT_DOMAIN}..." \
+    write_nginx_site "${TENANT_DOMAIN}" "${SOVIEZ_HOST_PORT}"
 
-  print_master_password_alert \
+  show_progress "Provisioning Let's Encrypt SSL for ${TENANT_DOMAIN}..." bash -c \
+    "certbot --nginx -d '${TENANT_DOMAIN}' --non-interactive --agree-tos --register-unsafely-without-email --redirect" \
+    || ui_warn "Certbot did not complete — HTTP site is live; re-run certbot when DNS is ready."
+
+  print_elite_welcome \
+    "${TENANT_DOMAIN}" \
+    "${CUSTOM_ADDONS_HOST_PATH}" \
     "${SOVIEZ_ADMIN_PASSWORD}" \
-    "INSTANCE #${NEXT_INDEX} — DATABASE MASTER PASSWORD (SAVE THIS NOW)"
-
-  print_green_success "Multi-tenant instance #${NEXT_INDEX} provisioned on port ${SOVIEZ_HOST_PORT}"
-  exit 0
-fi
+    "${next_index}"
+}
 
 # ===========================================================================
-# MODE: install — primary cluster bootstrap / relaunch
+# MODE: update — pull image + recycle web runners (all envs)
 # ===========================================================================
-apply_topology_primary
-SHOW_ADMIN_PASSWORD_ALERT=0
+mode_update() {
+  ensure_log_file
+  require_cmd docker
+  require_cmd python3
+  ensure_host_ledger_dir
 
-if [[ -f "${ENV_FILE}" ]]; then
-  log_info "Soviez ERP environment parameters already verified. Launching system cluster..."
+  local env_path
+  local -a env_files=()
+
+  # Indexed tenants
+  shopt -s nullglob
+  for env_path in "${INSTANCE_ROOT}"/.soviez_*.env "$(pwd)"/.soviez_*.env; do
+    [[ -f "${env_path}" ]] || continue
+    env_files+=("${env_path}")
+  done
+  shopt -u nullglob
+
+  # Legacy primary (optional)
+  for env_path in "${INSTANCE_ROOT}/.soviez.env" "$(pwd)/.soviez.env"; do
+    if [[ -f "${env_path}" ]]; then
+      env_files+=("${env_path}")
+    fi
+  done
+
+  if ((${#env_files[@]} == 0)); then
+    ui_error "No Soviez environments found. Provision one with: sudo ./setup.sh --new"
+    exit 1
+  fi
+
+  show_progress "Pulling ${APP_IMAGE}..." docker pull "${APP_IMAGE}"
+
+  local processed=()
+  for env_path in "${env_files[@]}"; do
+    # Deduplicate by realpath when both INSTANCE_ROOT and cwd point at same file
+    local real
+    real="$(readlink -f "${env_path}" 2>/dev/null || echo "${env_path}")"
+    local skip=0
+    local prev
+    for prev in "${processed[@]:-}"; do
+      if [[ "${prev}" == "${real}" ]]; then
+        skip=1
+        break
+      fi
+    done
+    (( skip == 1 )) && continue
+    processed+=("${real}")
+
+    ENV_FILE="${env_path}"
+    ui_info "Updating instance from ${ENV_FILE}"
+    load_env_file
+    require_complete_env
+
+    NETWORK_NAME="${SOVIEZ_NETWORK_NAME:-${NETWORK_NAME}}"
+    DB_CONTAINER="${SOVIEZ_DB_CONTAINER:-${DB_CONTAINER}}"
+    WEB_CONTAINER="${SOVIEZ_WEB_CONTAINER:-${WEB_CONTAINER}}"
+    DB_VOLUME="${SOVIEZ_DB_VOLUME:-${DB_VOLUME}}"
+    FILESTORE_VOLUME="${SOVIEZ_FILESTORE_VOLUME:-${FILESTORE_VOLUME}}"
+    INSTANCE_INDEX="${SOVIEZ_INSTANCE_INDEX:-}"
+    CUSTOM_ADDONS_HOST_PATH="${SOVIEZ_CUSTOM_ADDONS_HOST:-}"
+    if [[ -z "${CUSTOM_ADDONS_HOST_PATH}" && -n "${INSTANCE_INDEX}" ]]; then
+      CUSTOM_ADDONS_HOST_PATH="/etc/soviez_web_${INSTANCE_INDEX}/addons"
+    fi
+
+    if ! container_running "${DB_CONTAINER}"; then
+      if container_exists "${DB_CONTAINER}"; then
+        docker start "${DB_CONTAINER}" >/dev/null
+      else
+        ui_error "Database container '${DB_CONTAINER}' missing — skip ${ENV_FILE}"
+        continue
+      fi
+    fi
+    wait_for_postgres || continue
+
+    ui_wait "Stopping web runner ${WEB_CONTAINER}..."
+    docker stop "${WEB_CONTAINER}" >>"${LOG_FILE}" 2>&1 || true
+    docker rm -f "${WEB_CONTAINER}" >>"${LOG_FILE}" 2>&1 || true
+
+    if ! show_progress "Schema upgrade (${WEB_CONTAINER})..." run_schema_upgrades; then
+      ui_error "Upgrade aborted for ${WEB_CONTAINER} — left offline. Fix and re-run --update."
+      continue
+    fi
+
+    show_progress "Relaunching ${WEB_CONTAINER}..." launch_web_container
+    ui_ok "Recycled ${WEB_CONTAINER} on ${APP_IMAGE}"
+  done
+
+  print_green_success "Update complete — web runners recycled on ${APP_IMAGE}"
+  echo -e "  Log: ${C_DIM}${LOG_FILE}${C_RESET}"
+  echo ""
+}
+
+# ===========================================================================
+# MODE: recover — rotate admin password + recycle one web runner
+# ===========================================================================
+mode_recover() {
+  ensure_log_file
+  require_cmd docker
+  require_cmd python3
+
+  apply_topology_primary
+  if [[ ! -f "${ENV_FILE}" ]]; then
+    # Fall back to highest indexed tenant if no primary
+    local idx
+    idx="$(find_next_instance_index)"
+    if (( idx > 1 )); then
+      apply_topology_indexed $((idx - 1))
+    fi
+  fi
+
+  if [[ ! -f "${ENV_FILE}" ]]; then
+    ui_error "No Soviez installation found to recover."
+    exit 1
+  fi
+
   load_env_file
-
   NETWORK_NAME="${SOVIEZ_NETWORK_NAME:-${NETWORK_NAME}}"
   DB_CONTAINER="${SOVIEZ_DB_CONTAINER:-${DB_CONTAINER}}"
   WEB_CONTAINER="${SOVIEZ_WEB_CONTAINER:-${WEB_CONTAINER}}"
   DB_VOLUME="${SOVIEZ_DB_VOLUME:-${DB_VOLUME}}"
   FILESTORE_VOLUME="${SOVIEZ_FILESTORE_VOLUME:-${FILESTORE_VOLUME}}"
+  INSTANCE_INDEX="${SOVIEZ_INSTANCE_INDEX:-}"
+  CUSTOM_ADDONS_HOST_PATH="${SOVIEZ_CUSTOM_ADDONS_HOST:-}"
 
-  if [[ -z "${SOVIEZ_HOST_PORT:-}" ]]; then
-    log_info "Legacy environment detected — allocating persistent host port once..."
-    SOVIEZ_HOST_PORT="$(find_free_host_port "${PRIMARY_PORT_START}")"
-    persist_host_port "${SOVIEZ_HOST_PORT}"
-    log_info "Locked SOVIEZ_HOST_PORT=${SOVIEZ_HOST_PORT} into ${ENV_FILE}"
-  else
-    log_info "Reusing immutable host port SOVIEZ_HOST_PORT=${SOVIEZ_HOST_PORT}"
+  if [[ -z "${SOVIEZ_CONTAINER_MAC:-}" || -z "${SOVIEZ_DB_PASSWORD:-}" || -z "${SOVIEZ_HOST_PORT:-}" ]]; then
+    ui_error "${ENV_FILE} is incomplete — cannot recover master password."
+    exit 1
   fi
 
-  if [[ -z "${SOVIEZ_ADMIN_PASSWORD:-}" ]]; then
-    log_info "Legacy environment detected — generating Database Master Password once..."
-    SOVIEZ_ADMIN_PASSWORD="$(generate_password)"
-    persist_env_key "SOVIEZ_ADMIN_PASSWORD" "${SOVIEZ_ADMIN_PASSWORD}"
-    SHOW_ADMIN_PASSWORD_ALERT=1
-    log_info "Locked SOVIEZ_ADMIN_PASSWORD into ${ENV_FILE}"
-  fi
-else
-  # Write primary env into INSTANCE_ROOT when that is /root; else cwd.
-  if [[ "${INSTANCE_ROOT}" == "/root" ]]; then
-    ENV_FILE="${INSTANCE_ROOT}/.soviez.env"
-  else
-    ENV_FILE="$(pwd)/.soviez.env"
-  fi
-
-  log_info "First installation detected — generating immutable instance secrets..."
-  log_info "Hunting for the first available host TCP port starting at ${PRIMARY_PORT_START}..."
-  SOVIEZ_CONTAINER_MAC="$(generate_mac)"
-  SOVIEZ_DB_PASSWORD="$(generate_password)"
+  ui_info "Rotating Database Master Password..."
   SOVIEZ_ADMIN_PASSWORD="$(generate_password)"
-  SOVIEZ_HOST_PORT="$(find_free_host_port "${PRIMARY_PORT_START}")"
+  persist_env_key "SOVIEZ_ADMIN_PASSWORD" "${SOVIEZ_ADMIN_PASSWORD}"
+  load_env_file
 
-  cat > "${ENV_FILE}" <<EOF
-SOVIEZ_HOST_PORT=${SOVIEZ_HOST_PORT}
-SOVIEZ_CONTAINER_MAC=${SOVIEZ_CONTAINER_MAC}
-SOVIEZ_DB_PASSWORD=${SOVIEZ_DB_PASSWORD}
-SOVIEZ_ADMIN_PASSWORD=${SOVIEZ_ADMIN_PASSWORD}
-SOVIEZ_NETWORK_NAME=${NETWORK_NAME}
-SOVIEZ_DB_CONTAINER=${DB_CONTAINER}
-SOVIEZ_WEB_CONTAINER=${WEB_CONTAINER}
-SOVIEZ_DB_VOLUME=${DB_VOLUME}
-SOVIEZ_FILESTORE_VOLUME=${FILESTORE_VOLUME}
-EOF
-  chmod 600 "${ENV_FILE}"
-  SHOW_ADMIN_PASSWORD_ALERT=1
+  ensure_network_and_volumes
+  docker rm -f "${WEB_CONTAINER}" 2>/dev/null || true
+  show_progress "Pulling ${APP_IMAGE}..." docker pull "${APP_IMAGE}"
+  show_progress "Recycling ${WEB_CONTAINER}..." launch_web_container
 
-  log_info "Wrote ${ENV_FILE}"
-  log_info "SOVIEZ_CONTAINER_MAC=${SOVIEZ_CONTAINER_MAC}"
-  log_info "SOVIEZ_DB_PASSWORD=(32-character token redacted)"
-  log_info "SOVIEZ_ADMIN_PASSWORD=(32-character token — shown in red alert below)"
-  log_info "SOVIEZ_HOST_PORT=${SOVIEZ_HOST_PORT}"
-fi
-
-require_complete_env
-
-ensure_network_and_volumes
-
-log_info "Pulling rolling images ${APP_IMAGE} + ${DB_IMAGE}..."
-docker pull "${APP_IMAGE}"
-docker pull "${DB_IMAGE}"
-
-ensure_postgres_container
-
-if container_exists "${WEB_CONTAINER}"; then
-  log_info "Removing previous application container '${WEB_CONTAINER}' for clean recreate..."
-  docker rm -f "${WEB_CONTAINER}" >/dev/null
-fi
-
-launch_web_container
-
-log_info "Cluster launch complete."
-log_info "UI: http://localhost:${SOVIEZ_HOST_PORT}"
-log_info "    http://<your-server-ip>:${SOVIEZ_HOST_PORT}"
-log_info "First boot: open the URL to use the interactive Web Database Manager."
-log_info "Environment locked at: ${ENV_FILE}"
-log_info "Images: ${APP_IMAGE} | ${DB_IMAGE}"
-
-if (( SHOW_ADMIN_PASSWORD_ALERT == 1 )); then
   print_master_password_alert \
     "${SOVIEZ_ADMIN_PASSWORD}" \
-    "DATABASE MASTER PASSWORD (SAVE THIS NOW)"
-fi
+    "MASTER PASSWORD RESET — APPLICATION LAYER RECYCLED"
+  ui_ok "Master Password reset. Volumes preserved."
+}
+
+# ===========================================================================
+# Dispatch
+# ===========================================================================
+ensure_log_file
+
+case "${MODE}" in
+  init)
+    mode_init
+    ;;
+  new)
+    mode_new
+    ;;
+  update)
+    mode_update
+    ;;
+  recover)
+    mode_recover
+    ;;
+  *)
+    ui_error "Unknown mode: ${MODE}"
+    exit 1
+    ;;
+esac
