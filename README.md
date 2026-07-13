@@ -51,10 +51,12 @@ Because Soviez ERP operates on a strict, hardened secure cookie architecture (`s
 
 > **Critical:** Deploying against plain `http://` or a bare IP address will appear to “log in” and then immediately drop the session. Production traffic **must** terminate TLS at a reverse proxy before reaching the application container.
 
-The official installer configures **Nginx + Let's Encrypt (Certbot)** when you provision a tenant with `./setup.sh --new`. You need a domain whose DNS points at your server.
+The official installer configures **Nginx + HTTPS** when you provision a tenant with `./setup.sh --new`. You need a domain whose DNS points at your server.
+
+The wizard always binds **port 443** immediately (self-signed baseline), then upgrades to Let's Encrypt when Certbot can reach the host. If Certbot fails (common with Cloudflare proxied 🟠 records), HTTPS stays online on the self-signed cert — set Cloudflare SSL/TLS to **Full**. Repair later with `./setup.sh --formssl`.
 
 - **Domain Name**: A valid FQDN is required for production HTTPS sessions.
-- **Reverse Proxy / SSL**: Handled by the wizard (Nginx + Certbot), or any equivalent TLS terminator you operate.
+- **Reverse Proxy / SSL**: Handled by the wizard (Nginx + Certbot / self-signed fallback), or any equivalent TLS terminator you operate.
 
 ### 🔑 3. Commercial Licensing
 
@@ -81,6 +83,9 @@ sudo ./setup.sh --new
 
 # 2b) If provisioning failed mid-flight on Nginx/SSL, heal and resume:
 sudo ./setup.sh --formsetup
+
+# 2c) HTTPS-only repair (Cloudflare / Let's Encrypt retry):
+sudo ./setup.sh --formssl
 ```
 
 | Mode | Command | Role |
@@ -88,14 +93,16 @@ sudo ./setup.sh --formsetup
 | **Init** | `./setup.sh --init` (default) | Apt, Docker, Nginx, Certbot, UFW — host only |
 | **New** | `./setup.sh --new` | Domain + DNS check + isolated ERP/Postgres stack + HTTPS |
 | **Form setup** | `./setup.sh --formsetup` | Resume / heal the latest half-configured tenant (idempotent) |
+| **Form SSL** | `./setup.sh --formssl [domain]` | Diagnose / repair HTTPS (Let's Encrypt or self-signed) |
 | **Update** | `./setup.sh --update` | Pull latest ERP image and upgrade schemas |
 | **Recover** | `./setup.sh --recoverdbpass` | Rotate Database Master Password |
 
 The installer:
 
 - Keeps verbose detail in **`/var/log/soviez_setup.log`**; the terminal shows clean status lines only
-- On `--new`: creates an immutable `.soviez_N.env` (MAC, Postgres password, **Database Master Password**, host port from **8073**), starts **`postgres:16`** + **`soviez/soviez-erp:latest`**, mounts custom addons under `/etc/soviez_web_N/addons`, configures Nginx + Let's Encrypt, and prints the live **`https://your.domain`** URL
+- On `--new`: creates an immutable `.soviez_N.env` (MAC, Postgres password, **Database Master Password**, host port from **8073**), starts **`postgres:16`** + **`soviez/soviez-erp:latest`**, mounts custom addons under `/etc/soviez_web_N/addons`, writes Nginx `:80` + `:443` (self-signed baseline → Certbot), and prints the live **`https://your.domain`** URL
 - Flashes a high-visibility console alert with the Database Master Password — save it immediately
+- If Let's Encrypt fails, keeps self-signed HTTPS online and reminds you to set Cloudflare SSL/TLS to **Full**
 
 Images:
 
@@ -151,7 +158,16 @@ If `--new` stopped after writing secrets/containers but before HTTPS was fully o
 sudo ./setup.sh --formsetup
 ```
 
-Resumes the latest half-configured tenant idempotently (keeps volumes, starts stopped containers, rewrites Nginx + Let's Encrypt, reprints the welcome banner and Master Password). Safe to re-run.
+Resumes the latest half-configured tenant idempotently (keeps volumes, starts stopped containers, rewrites Nginx + HTTPS, reprints the welcome banner and Master Password). Safe to re-run.
+
+### 🔐 Form SSL — Fix HTTPS (Cloudflare / Let's Encrypt)
+
+```bash
+sudo ./setup.sh --formssl
+sudo ./setup.sh --formssl erp.example.com
+```
+
+Diagnoses the tenant vhost, retries Let's Encrypt, and if Certbot still fails keeps a self-signed `:443` cert so the site stays reachable with Cloudflare SSL set to **Full**. Never leaves the domain on HTTP-only (which lets other host panels capture HTTPS).
 
 ### Manual `docker run` (lab / equivalent topology)
 

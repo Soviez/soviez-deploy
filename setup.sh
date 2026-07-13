@@ -5,6 +5,7 @@
 #   ./setup.sh            | --init    Host environment bootstrap (apt, Docker, Nginx, Certbot, UFW)
 #   ./setup.sh --new                  Provision isolated multi-tenant instance + DNS/SSL/addons
 #   ./setup.sh --formsetup            Resume / heal the latest half-configured tenant (idempotent)
+#   ./setup.sh --formssl [domain]     Diagnose / repair tenant HTTPS (LE or self-signed Cloudflare Full)
 #   ./setup.sh --update               Pull soviez/soviez-erp:latest and recycle web runners
 #   ./setup.sh --recoverdbpass        Rotate Database Master Password (primary / indexed via env)
 #
@@ -32,6 +33,9 @@ INSTANCE_INDEX=""
 PORT_SCAN_START="${PRIMARY_PORT_START}"
 CUSTOM_ADDONS_HOST_PATH=""
 TENANT_DOMAIN=""
+FORMSSL_DOMAIN=""
+# Set by provision_tenant_https / --formssl: letsencrypt | selfsigned
+SSL_STATUS=""
 
 # ---------------------------------------------------------------------------
 # Colors / UI
@@ -63,6 +67,9 @@ for arg in "$@"; do
     --formsetup)
       MODE="formsetup"
       ;;
+    --formssl)
+      MODE="formssl"
+      ;;
     --recoverdbpass)
       MODE="recover"
       ;;
@@ -71,26 +78,40 @@ for arg in "$@"; do
 Soviez ERP — production onboarding wizard
 
 Usage:
-  ./setup.sh [--init]         Bootstrap host (apt, Docker, Nginx, Certbot, UFW)
-  ./setup.sh --new            Provision a new isolated tenant (domain + SSL + addons)
-  ./setup.sh --formsetup      Resume / heal latest half-configured tenant (idempotent)
-  ./setup.sh --update         Pull latest ERP image and recycle web containers
-  ./setup.sh --recoverdbpass  Rotate Database Master Password
-  ./setup.sh --help           Show this help
+  ./setup.sh [--init]              Bootstrap host (apt, Docker, Nginx, Certbot, UFW)
+  ./setup.sh --new                 Provision a new isolated tenant (domain + SSL + addons)
+  ./setup.sh --formsetup           Resume / heal latest half-configured tenant (idempotent)
+  ./setup.sh --formssl [domain]    Diagnose / repair HTTPS (Let's Encrypt or self-signed)
+  ./setup.sh --update              Pull latest ERP image and recycle web containers
+  ./setup.sh --recoverdbpass       Rotate Database Master Password
+  ./setup.sh --help                Show this help
 
 Images:
   soviez/soviez-erp:latest
   postgres:16
+
+SSL strategy:
+  Baseline port 443 with self-signed cert (Cloudflare Full-safe), then Certbot.
+  If Let's Encrypt fails, self-signed 443 stays online — never HTTP-only.
 
 Verbose log:
   /var/log/soviez_setup.log
 USAGE
       exit 0
       ;;
-    *)
+    -*)
       echo "[ERROR] Unknown argument: ${arg}" >&2
       echo "[ERROR] Try: ./setup.sh --help" >&2
       exit 1
+      ;;
+    *)
+      if [[ "${MODE}" == "formssl" && -z "${FORMSSL_DOMAIN}" ]]; then
+        FORMSSL_DOMAIN="${arg}"
+      else
+        echo "[ERROR] Unknown argument: ${arg}" >&2
+        echo "[ERROR] Try: ./setup.sh --help" >&2
+        exit 1
+      fi
       ;;
   esac
 done
@@ -438,17 +459,24 @@ find_highest_instance_index() {
   echo "${max}"
 }
 
-# True when domain Nginx vhost, enabled symlink, and/or Let's Encrypt cert look unfinished.
+# True when domain Nginx vhost, 443 listener, enabled symlink, and/or SSL material look unfinished.
 tenant_proxy_incomplete() {
   local domain="$1"
   local site_file="/etc/nginx/sites-available/soviez-${domain}.conf"
   local enabled_link="/etc/nginx/sites-enabled/soviez-${domain}.conf"
-  local cert_file="/etc/letsencrypt/live/${domain}/fullchain.pem"
+  local le_cert="/etc/letsencrypt/live/${domain}/fullchain.pem"
+  local ss_cert="/etc/ssl/certs/soviez-${domain}.crt"
 
   [[ -z "${domain}" ]] && return 0
   [[ ! -f "${site_file}" ]] && return 0
   [[ ! -e "${enabled_link}" ]] && return 0
-  [[ ! -f "${cert_file}" ]] && return 0
+  if ! grep -Eq 'listen[[:space:]]+[^;]*443' "${site_file}" 2>/dev/null; then
+    return 0
+  fi
+  # Incomplete only if neither LE nor self-signed material exists.
+  if [[ ! -f "${le_cert}" && ! -f "${ss_cert}" ]]; then
+    return 0
+  fi
   return 1
 }
 
@@ -929,17 +957,132 @@ configure_nginx_global_limits() {
   systemctl reload nginx >>"${LOG_FILE}" 2>&1 || systemctl start nginx >>"${LOG_FILE}" 2>&1 || true
 }
 
+ssl_selfsigned_crt_path() {
+  printf '%s\n' "/etc/ssl/certs/soviez-${1}.crt"
+}
+
+ssl_selfsigned_key_path() {
+  printf '%s\n' "/etc/ssl/private/soviez-${1}.key"
+}
+
+ssl_le_fullchain_path() {
+  printf '%s\n' "/etc/letsencrypt/live/${1}/fullchain.pem"
+}
+
+ssl_le_privkey_path() {
+  printf '%s\n' "/etc/letsencrypt/live/${1}/privkey.pem"
+}
+
+# Generate 2048-bit self-signed cert for Cloudflare Full / Virtualmin 443 competition.
+# force=1 regenerates even if files exist.
+ensure_selfsigned_cert() {
+  local domain="$1"
+  local force="${2:-0}"
+  local crt key
+  crt="$(ssl_selfsigned_crt_path "${domain}")"
+  key="$(ssl_selfsigned_key_path "${domain}")"
+
+  require_cmd openssl
+  mkdir -p /etc/ssl/certs /etc/ssl/private
+  chmod 755 /etc/ssl/certs
+  chmod 700 /etc/ssl/private
+
+  if [[ "${force}" != "1" && -f "${crt}" && -f "${key}" ]]; then
+    log_file "Self-signed cert already present for ${domain}"
+    return 0
+  fi
+
+  if [[ "${force}" == "1" ]]; then
+    ui_wait "Refreshing self-signed certificate for ${domain}..."
+  else
+    ui_wait "Generating high-security self-signed certificate for ${domain}..."
+  fi
+
+  # Prefer SAN-capable OpenSSL 1.1.1+; fall back to CN-only on older builds.
+  set +e
+  openssl req -x509 -nodes -newkey rsa:2048 -days 825 \
+    -keyout "${key}" -out "${crt}" \
+    -subj "/CN=${domain}/O=Soviez ERP Fallback/C=US" \
+    -addext "subjectAltName=DNS:${domain}" >>"${LOG_FILE}" 2>&1
+  local rc=$?
+  if (( rc != 0 )); then
+    openssl req -x509 -nodes -newkey rsa:2048 -days 825 \
+      -keyout "${key}" -out "${crt}" \
+      -subj "/CN=${domain}/O=Soviez ERP Fallback/C=US" >>"${LOG_FILE}" 2>&1
+    rc=$?
+  fi
+  set -e
+
+  if (( rc != 0 )) || [[ ! -f "${crt}" || ! -f "${key}" ]]; then
+    ui_error "Failed to generate self-signed certificate for ${domain} — see ${LOG_FILE}"
+    return 1
+  fi
+  chmod 644 "${crt}"
+  chmod 640 "${key}"
+  ui_ok "Self-signed certificate ready (${crt})"
+}
+
+cert_issuer_summary() {
+  local crt="$1"
+  if [[ ! -f "${crt}" ]]; then
+    printf '%s\n' "(missing)"
+    return 0
+  fi
+  openssl x509 -in "${crt}" -noout -issuer 2>/dev/null | sed 's/^issuer=//' || printf '%s\n' "(unreadable)"
+}
+
+cert_is_letsencrypt_file() {
+  local crt="$1"
+  [[ -f "${crt}" ]] || return 1
+  local issuer
+  issuer="$(cert_issuer_summary "${crt}")"
+  printf '%s' "${issuer}" | grep -Eiq "Let's Encrypt|ISRG Root|R[0-9]+"
+}
+
+nginx_site_path() {
+  printf '%s\n' "/etc/nginx/sites-available/soviez-${1}.conf"
+}
+
+nginx_site_has_443() {
+  local site
+  site="$(nginx_site_path "$1")"
+  [[ -f "${site}" ]] || return 1
+  grep -Eq 'listen[[:space:]]+[^;]*443' "${site}" 2>/dev/null
+}
+
+# Write complete dual-stack vhost: :80 ACME + HTTPS redirect, :443 SSL proxy to ERP.
+# ssl_kind: selfsigned | letsencrypt
 write_nginx_site() {
   local domain="$1"
   local host_port="$2"
-  local site_file="/etc/nginx/sites-available/soviez-${domain}.conf"
-  local enabled_link="/etc/nginx/sites-enabled/soviez-${domain}.conf"
+  local ssl_kind="${3:-selfsigned}"
+  local site_file enabled_link crt_file key_file
 
-  # Defensive: never nginx -t a site that references $connection_upgrade without the map.
+  site_file="$(nginx_site_path "${domain}")"
+  enabled_link="/etc/nginx/sites-enabled/soviez-${domain}.conf"
+
   ensure_nginx_global_limits
+
+  if [[ "${ssl_kind}" == "letsencrypt" ]]; then
+    crt_file="$(ssl_le_fullchain_path "${domain}")"
+    key_file="$(ssl_le_privkey_path "${domain}")"
+    if [[ ! -f "${crt_file}" || ! -f "${key_file}" ]]; then
+      ui_warn "Let's Encrypt files missing for ${domain} — falling back to self-signed paths"
+      ssl_kind="selfsigned"
+    fi
+  fi
+
+  if [[ "${ssl_kind}" == "selfsigned" ]]; then
+    ensure_selfsigned_cert "${domain}" 0 || return 1
+    crt_file="$(ssl_selfsigned_crt_path "${domain}")"
+    key_file="$(ssl_selfsigned_key_path "${domain}")"
+  fi
 
   cat > "${site_file}" <<EOF
 # Soviez ERP tenant — ${domain} → 127.0.0.1:${host_port}
+# SSL mode: ${ssl_kind}
+# Always binds :443 so Virtualmin / other default HTTPS listeners cannot swallow tenant traffic.
+
 server {
     listen 80;
     listen [::]:80;
@@ -947,6 +1090,27 @@ server {
 
     client_max_body_size 512M;
 
+    # Preserve ACME HTTP-01 challenges for Certbot / renewal.
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/html;
+        default_type "text/plain";
+        allow all;
+    }
+
+    location / {
+        return 301 https://\$host\$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name ${domain};
+
+    ssl_certificate     ${crt_file};
+    ssl_certificate_key ${key_file};
+
+    client_max_body_size 512M;
     proxy_read_timeout 720s;
     proxy_connect_timeout 720s;
     proxy_send_timeout 720s;
@@ -978,14 +1142,128 @@ server {
 EOF
 
   ln -sfn "${site_file}" "${enabled_link}"
-  # Disable default site when present (idempotent)
   rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
+  mkdir -p /var/www/html
 
   if ! nginx -t >>"${LOG_FILE}" 2>&1; then
     ui_error "Nginx site config failed for ${domain} — see ${LOG_FILE}"
     return 1
   fi
-  systemctl reload nginx >>"${LOG_FILE}" 2>&1
+  systemctl reload nginx >>"${LOG_FILE}" 2>&1 || systemctl start nginx >>"${LOG_FILE}" 2>&1 || true
+  log_file "Wrote Nginx site ${site_file} ssl_kind=${ssl_kind} crt=${crt_file}"
+}
+
+# Baseline 443 (self-signed) → Certbot → LE rewrite or keep self-signed gracefully.
+# Sets SSL_STATUS to letsencrypt | selfsigned. Always leaves :443 online.
+provision_tenant_https() {
+  local domain="$1"
+  local host_port="$2"
+  local certbot_rc=0
+
+  SSL_STATUS="selfsigned"
+
+  ui_wait "Writing baseline HTTPS Nginx site (self-signed :443) for ${domain}..."
+  if ! write_nginx_site "${domain}" "${host_port}" "selfsigned"; then
+    return 1
+  fi
+  ui_ok "Baseline HTTPS site live on :443 (self-signed)"
+
+  if ! command -v certbot >/dev/null 2>&1; then
+    ui_warn "Certbot not installed — keeping self-signed HTTPS. Run: sudo ./setup.sh --init"
+    SSL_STATUS="selfsigned"
+    return 0
+  fi
+
+  ui_wait "Requesting Let's Encrypt certificate for ${domain}..."
+  set +e
+  certbot --nginx -d "${domain}" --non-interactive --agree-tos \
+    --register-unsafely-without-email --redirect >>"${LOG_FILE}" 2>&1
+  certbot_rc=$?
+  set -e
+
+  if (( certbot_rc == 0 )) && [[ -f "$(ssl_le_fullchain_path "${domain}")" ]]; then
+    ui_ok "Let's Encrypt issued for ${domain}"
+    ui_wait "Locking Nginx to official Let's Encrypt certificate paths..."
+    if write_nginx_site "${domain}" "${host_port}" "letsencrypt"; then
+      SSL_STATUS="letsencrypt"
+      ui_ok "HTTPS secured with Let's Encrypt"
+      return 0
+    fi
+    ui_warn "LE files exist but Nginx rewrite failed — restoring self-signed :443"
+  else
+    ui_warn "Let's Encrypt failed. Generating high-security Self-Signed fallback certificate..."
+    log_file "WARN Certbot failed (rc=${certbot_rc}) for ${domain} — applying self-signed fallback"
+  fi
+
+  ensure_selfsigned_cert "${domain}" 1 || return 1
+  if ! write_nginx_site "${domain}" "${host_port}" "selfsigned"; then
+    return 1
+  fi
+  SSL_STATUS="selfsigned"
+  ui_ok "Self-signed HTTPS fallback active on :443 (Cloudflare Full-compatible)"
+  ui_warn "Using Cloudflare? Set SSL/TLS encryption mode to Full so the site opens securely."
+  return 0
+}
+
+print_ssl_status_report() {
+  local domain="$1"
+  local mode="${2:-${SSL_STATUS}}"
+  echo ""
+  echo -e "  ${C_BOLD}SSL status for ${domain}${C_RESET}"
+  case "${mode}" in
+    letsencrypt)
+      echo -e "     ${C_GREEN}✔ Let's Encrypt${C_RESET} — trusted public certificate active"
+      echo -e "     ${C_DIM}$(ssl_le_fullchain_path "${domain}")${C_RESET}"
+      ;;
+    selfsigned)
+      echo -e "     ${C_YELLOW}⚠ Self-Signed fallback${C_RESET} — optimized for Cloudflare ${C_BOLD}Full${C_RESET} mode"
+      echo -e "     ${C_DIM}$(ssl_selfsigned_crt_path "${domain}")${C_RESET}"
+      echo -e "     ${C_YELLOW}⚠️  SSL Note: Using Cloudflare? Ensure your Cloudflare SSL/TLS encryption mode is set to 'Full' so your site opens securely immediately!${C_RESET}"
+      ;;
+    *)
+      echo -e "     ${C_DIM}Unknown / not provisioned${C_RESET}"
+      ;;
+  esac
+  echo ""
+}
+
+find_env_path_by_domain() {
+  local want="$1"
+  local path domain
+  shopt -s nullglob
+  for path in \
+      "${INSTANCE_ROOT}"/.soviez_*.env \
+      "$(pwd)"/.soviez_*.env \
+      "${INSTANCE_ROOT}/.soviez.env" \
+      "$(pwd)/.soviez.env"; do
+    [[ -f "${path}" ]] || continue
+    domain="$(grep -E '^SOVIEZ_TENANT_DOMAIN=' "${path}" 2>/dev/null | head -n1 | cut -d= -f2- || true)"
+    if [[ "${domain}" == "${want}" ]]; then
+      shopt -u nullglob
+      printf '%s\n' "${path}"
+      return 0
+    fi
+  done
+  shopt -u nullglob
+  return 1
+}
+
+load_tenant_from_env_path() {
+  local env_path="$1"
+  ENV_FILE="${env_path}"
+  load_env_file
+  require_complete_env
+  NETWORK_NAME="${SOVIEZ_NETWORK_NAME:-${NETWORK_NAME}}"
+  DB_CONTAINER="${SOVIEZ_DB_CONTAINER:-${DB_CONTAINER}}"
+  WEB_CONTAINER="${SOVIEZ_WEB_CONTAINER:-${WEB_CONTAINER}}"
+  DB_VOLUME="${SOVIEZ_DB_VOLUME:-${DB_VOLUME}}"
+  FILESTORE_VOLUME="${SOVIEZ_FILESTORE_VOLUME:-${FILESTORE_VOLUME}}"
+  INSTANCE_INDEX="${SOVIEZ_INSTANCE_INDEX:-}"
+  CUSTOM_ADDONS_HOST_PATH="${SOVIEZ_CUSTOM_ADDONS_HOST:-${CUSTOM_ADDONS_HOST_PATH}}"
+  if [[ -z "${CUSTOM_ADDONS_HOST_PATH}" && -n "${INSTANCE_INDEX}" ]]; then
+    CUSTOM_ADDONS_HOST_PATH="/etc/soviez_web_${INSTANCE_INDEX}/addons"
+  fi
+  TENANT_DOMAIN="${SOVIEZ_TENANT_DOMAIN:-}"
 }
 
 install_docker_engine() {
@@ -1053,7 +1331,12 @@ BANNER
   echo -e "  ${C_BOLD}Custom addons folder${C_RESET}"
   echo -e "     ${C_CYAN}${addons_path}${C_RESET}"
   echo -e "     ${C_DIM}Drop Odoo modules here, then refresh Apps or run ./setup.sh --update${C_RESET}"
-  echo ""
+  print_ssl_status_report "${domain}" "${SSL_STATUS:-}"
+  if [[ "${SSL_STATUS:-}" == "selfsigned" ]]; then
+    echo -e "  ${C_YELLOW}⚠️  SSL Note: Using Cloudflare? Ensure your Cloudflare SSL/TLS encryption mode is set to 'Full' so your site opens securely immediately!${C_RESET}"
+    echo -e "  ${C_DIM}Re-attempt Let's Encrypt later: sudo ./setup.sh --formssl ${domain}${C_RESET}"
+    echo ""
+  fi
   print_master_password_alert \
     "${admin_password}" \
     "INSTANCE #${index} — DATABASE MASTER PASSWORD (SAVE THIS NOW)"
@@ -1178,12 +1461,11 @@ EOF
   fi
   show_progress "Launching Soviez ERP (${WEB_CONTAINER})..." launch_web_container
 
-  show_progress "Writing Nginx site for ${TENANT_DOMAIN}..." \
-    write_nginx_site "${TENANT_DOMAIN}" "${SOVIEZ_HOST_PORT}"
-
-  show_progress "Provisioning Let's Encrypt SSL for ${TENANT_DOMAIN}..." bash -c \
-    "certbot --nginx -d '${TENANT_DOMAIN}' --non-interactive --agree-tos --register-unsafely-without-email --redirect" \
-    || ui_warn "Certbot did not complete — HTTP site is live; re-run certbot when DNS is ready."
+  if ! provision_tenant_https "${TENANT_DOMAIN}" "${SOVIEZ_HOST_PORT}"; then
+    ui_error "HTTPS provisioning failed — see ${LOG_FILE}"
+    exit 1
+  fi
+  persist_env_key "SOVIEZ_SSL_MODE" "${SSL_STATUS}"
 
   print_elite_welcome \
     "${TENANT_DOMAIN}" \
@@ -1254,22 +1536,129 @@ mode_formsetup() {
   resume_postgres_container
   resume_web_container
 
-  ui_wait "Regenerating Nginx vhost + global limits for ${TENANT_DOMAIN}..."
-  if ! write_nginx_site "${TENANT_DOMAIN}" "${SOVIEZ_HOST_PORT}"; then
-    ui_error "Nginx recovery failed — see ${LOG_FILE}"
+  ui_wait "Regenerating Nginx + HTTPS for ${TENANT_DOMAIN}..."
+  if ! provision_tenant_https "${TENANT_DOMAIN}" "${SOVIEZ_HOST_PORT}"; then
+    ui_error "Nginx/SSL recovery failed — see ${LOG_FILE}"
     exit 1
   fi
-  ui_ok "Nginx site ready for ${TENANT_DOMAIN}"
-
-  show_progress "Provisioning Let's Encrypt SSL for ${TENANT_DOMAIN}..." bash -c \
-    "certbot --nginx -d '${TENANT_DOMAIN}' --non-interactive --agree-tos --register-unsafely-without-email --redirect" \
-    || ui_warn "Certbot did not complete — HTTP site is live; re-run ./setup.sh --formsetup when DNS is ready."
+  persist_env_key "SOVIEZ_SSL_MODE" "${SSL_STATUS}"
+  ui_ok "HTTPS pipeline complete for ${TENANT_DOMAIN} (${SSL_STATUS})"
 
   print_elite_welcome \
     "${TENANT_DOMAIN}" \
     "${CUSTOM_ADDONS_HOST_PATH}" \
     "${SOVIEZ_ADMIN_PASSWORD}" \
     "${INSTANCE_INDEX}"
+}
+
+# ===========================================================================
+# MODE: formssl — diagnose / repair tenant HTTPS (LE or self-signed fallback)
+# ===========================================================================
+mode_formssl() {
+  require_root --formssl
+  ensure_log_file
+  require_cmd openssl
+
+  if ! command -v nginx >/dev/null 2>&1; then
+    ui_error "Nginx not installed. Run first: sudo ./setup.sh --init"
+    exit 1
+  fi
+
+  local target_index env_path domain host_port site_file active_crt issuer has_443
+
+  if [[ -n "${FORMSSL_DOMAIN}" ]]; then
+    TENANT_DOMAIN="$(printf '%s' "${FORMSSL_DOMAIN}" | tr '[:upper:]' '[:lower:]')"
+    TENANT_DOMAIN="${TENANT_DOMAIN#http://}"
+    TENANT_DOMAIN="${TENANT_DOMAIN#https://}"
+    TENANT_DOMAIN="${TENANT_DOMAIN%%/*}"
+    if ! env_path="$(find_env_path_by_domain "${TENANT_DOMAIN}")"; then
+      ui_error "No environment sheet found for domain: ${TENANT_DOMAIN}"
+      exit 1
+    fi
+    load_tenant_from_env_path "${env_path}"
+  else
+    target_index="$(select_formsetup_index)"
+    if (( target_index < 1 )); then
+      target_index="$(find_highest_instance_index)"
+    fi
+    if (( target_index < 1 )); then
+      ui_error "No tenant found. Provision with: sudo ./setup.sh --new"
+      exit 1
+    fi
+    apply_topology_indexed "${target_index}"
+    if [[ ! -f "${ENV_FILE}" ]]; then
+      ui_error "Missing environment sheet: ${ENV_FILE}"
+      exit 1
+    fi
+    load_tenant_from_env_path "${ENV_FILE}"
+  fi
+
+  domain="${TENANT_DOMAIN:-}"
+  host_port="${SOVIEZ_HOST_PORT:-}"
+  if [[ -z "${domain}" || -z "${host_port}" ]]; then
+    ui_error "Env sheet incomplete (need SOVIEZ_TENANT_DOMAIN + SOVIEZ_HOST_PORT)."
+    exit 1
+  fi
+
+  site_file="$(nginx_site_path "${domain}")"
+
+  print_border_box "Soviez ERP — SSL Form Repair" \
+    "Domain: ${C_BOLD}${domain}${C_RESET}" \
+    "Upstream: 127.0.0.1:${host_port}" \
+    "Env: ${ENV_FILE}" \
+    "" \
+    "Diagnose → Certbot attempt → Let's Encrypt or self-signed :443 fallback"
+
+  ui_info "Diagnosing Nginx / certificate state..."
+
+  if [[ -f "${site_file}" ]]; then
+    ui_ok "Nginx vhost present: ${site_file}"
+  else
+    ui_warn "Nginx vhost missing — will be rewritten"
+  fi
+
+  if nginx_site_has_443 "${domain}"; then
+    ui_ok "Port 443 listener configured in vhost"
+    has_443=1
+  else
+    ui_warn "Port 443 listener MISSING — Virtualmin may be capturing HTTPS"
+    has_443=0
+  fi
+
+  if [[ -f "$(ssl_le_fullchain_path "${domain}")" ]]; then
+    active_crt="$(ssl_le_fullchain_path "${domain}")"
+    issuer="$(cert_issuer_summary "${active_crt}")"
+    if cert_is_letsencrypt_file "${active_crt}"; then
+      ui_ok "Let's Encrypt material present — issuer: ${issuer}"
+    else
+      ui_warn "LE path exists but issuer is unexpected: ${issuer}"
+    fi
+  elif [[ -f "$(ssl_selfsigned_crt_path "${domain}")" ]]; then
+    active_crt="$(ssl_selfsigned_crt_path "${domain}")"
+    issuer="$(cert_issuer_summary "${active_crt}")"
+    ui_warn "Self-signed material present — issuer: ${issuer}"
+  else
+    ui_warn "No certificate files found on disk for ${domain}"
+  fi
+
+  if ! provision_tenant_https "${domain}" "${host_port}"; then
+    ui_error "SSL repair failed — see ${LOG_FILE}"
+    exit 1
+  fi
+  persist_env_key "SOVIEZ_SSL_MODE" "${SSL_STATUS}"
+
+  print_green_success "SSL form repair complete for ${domain}"
+  print_ssl_status_report "${domain}" "${SSL_STATUS}"
+  if [[ "${SSL_STATUS}" == "letsencrypt" ]]; then
+    echo -e "  ${C_GREEN}True Let's Encrypt SSL is active.${C_RESET} Browsers will trust https://${domain}"
+  else
+    echo -e "  ${C_YELLOW}Self-Signed setup optimized for Cloudflare Full mode.${C_RESET}"
+    echo -e "  ${C_YELLOW}⚠️  SSL Note: Using Cloudflare? Ensure your Cloudflare SSL/TLS encryption mode is set to 'Full' so your site opens securely immediately!${C_RESET}"
+    echo -e "  ${C_DIM}Tip: Switch Cloudflare to DNS-only (grey cloud) temporarily, then re-run:${C_RESET}"
+    echo -e "    ${C_BOLD}sudo ./setup.sh --formssl ${domain}${C_RESET}"
+  fi
+  echo -e "  ${C_DIM}Log: ${LOG_FILE}${C_RESET}"
+  echo ""
 }
 
 # ===========================================================================
@@ -1433,6 +1822,9 @@ case "${MODE}" in
     ;;
   formsetup)
     mode_formsetup
+    ;;
+  formssl)
+    mode_formssl
     ;;
   update)
     mode_update
