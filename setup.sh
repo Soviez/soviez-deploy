@@ -4,6 +4,7 @@
 # Modes:
 #   ./setup.sh            | --init    Host environment bootstrap (apt, Docker, Nginx, Certbot, UFW)
 #   ./setup.sh --new                  Provision isolated multi-tenant instance + DNS/SSL/addons
+#   ./setup.sh --formsetup            Resume / heal the latest half-configured tenant (idempotent)
 #   ./setup.sh --update               Pull soviez/soviez-erp:latest and recycle web runners
 #   ./setup.sh --recoverdbpass        Rotate Database Master Password (primary / indexed via env)
 #
@@ -59,6 +60,9 @@ for arg in "$@"; do
     --new)
       MODE="new"
       ;;
+    --formsetup)
+      MODE="formsetup"
+      ;;
     --recoverdbpass)
       MODE="recover"
       ;;
@@ -69,6 +73,7 @@ Soviez ERP — production onboarding wizard
 Usage:
   ./setup.sh [--init]         Bootstrap host (apt, Docker, Nginx, Certbot, UFW)
   ./setup.sh --new            Provision a new isolated tenant (domain + SSL + addons)
+  ./setup.sh --formsetup      Resume / heal latest half-configured tenant (idempotent)
   ./setup.sh --update         Pull latest ERP image and recycle web containers
   ./setup.sh --recoverdbpass  Rotate Database Master Password
   ./setup.sh --help           Show this help
@@ -411,13 +416,140 @@ find_next_instance_index() {
   fi
 }
 
+# Highest existing indexed env sheet (0 = none). Does not +1.
+find_highest_instance_index() {
+  local max=0
+  local path base num
+
+  shopt -s nullglob
+  for path in \
+      "${INSTANCE_ROOT}"/.soviez_*.env \
+      "$(pwd)"/.soviez_*.env; do
+    [[ -f "${path}" ]] || continue
+    base="$(basename "${path}")"
+    if [[ "${base}" =~ ^\.soviez_([0-9]+)\.env$ ]]; then
+      num="${BASH_REMATCH[1]}"
+      if (( num > max )); then
+        max="${num}"
+      fi
+    fi
+  done
+  shopt -u nullglob
+  echo "${max}"
+}
+
+# True when domain Nginx vhost, enabled symlink, and/or Let's Encrypt cert look unfinished.
+tenant_proxy_incomplete() {
+  local domain="$1"
+  local site_file="/etc/nginx/sites-available/soviez-${domain}.conf"
+  local enabled_link="/etc/nginx/sites-enabled/soviez-${domain}.conf"
+  local cert_file="/etc/letsencrypt/live/${domain}/fullchain.pem"
+
+  [[ -z "${domain}" ]] && return 0
+  [[ ! -f "${site_file}" ]] && return 0
+  [[ ! -e "${enabled_link}" ]] && return 0
+  [[ ! -f "${cert_file}" ]] && return 0
+  return 1
+}
+
+# Prefer highest half-configured tenant; else newest env sheet.
+select_formsetup_index() {
+  local max path domain
+  local i
+  local site_incomplete
+
+  max="$(find_highest_instance_index)"
+  if (( max < 1 )); then
+    echo 0
+    return 0
+  fi
+
+  for (( i = max; i >= 1; i-- )); do
+    path=""
+    for candidate in "${INSTANCE_ROOT}/.soviez_${i}.env" "$(pwd)/.soviez_${i}.env"; do
+      if [[ -f "${candidate}" ]]; then
+        path="${candidate}"
+        break
+      fi
+    done
+    [[ -n "${path}" ]] || continue
+
+    domain="$(grep -E '^SOVIEZ_TENANT_DOMAIN=' "${path}" 2>/dev/null | head -n1 | cut -d= -f2- || true)"
+    site_incomplete=0
+    if tenant_proxy_incomplete "${domain}"; then
+      site_incomplete=1
+    fi
+    if (( site_incomplete == 1 )) \
+        || ! container_exists "soviez-db-${i}" \
+        || ! container_running "soviez-db-${i}" \
+        || ! container_exists "soviez-web-${i}" \
+        || ! container_running "soviez-web-${i}"; then
+      log_file "formsetup: selected incomplete index=${i} domain=${domain:-?} env=${path}"
+      echo "${i}"
+      return 0
+    fi
+  done
+
+  log_file "formsetup: no incomplete tenant — resuming highest index=${max}"
+  echo "${max}"
+}
+
 # ---------------------------------------------------------------------------
-# Docker / DB / web lifecycle (shared by --new / --update / --recover)
+# Docker / DB / web lifecycle (shared by --new / --formsetup / --update / --recover)
 # ---------------------------------------------------------------------------
+docker_network_exists() {
+  docker network inspect "$1" >/dev/null 2>&1
+}
+
+docker_volume_exists() {
+  docker volume inspect "$1" >/dev/null 2>&1
+}
+
 ensure_network_and_volumes() {
-  docker network create "${NETWORK_NAME}" >>"${LOG_FILE}" 2>&1 || true
-  docker volume create "${DB_VOLUME}" >/dev/null
-  docker volume create "${FILESTORE_VOLUME}" >/dev/null
+  if docker_network_exists "${NETWORK_NAME}"; then
+    log_file "Network ${NETWORK_NAME} already exists"
+  else
+    docker network create "${NETWORK_NAME}" >>"${LOG_FILE}" 2>&1
+  fi
+  if docker_volume_exists "${DB_VOLUME}"; then
+    log_file "Volume ${DB_VOLUME} already exists"
+  else
+    docker volume create "${DB_VOLUME}" >/dev/null
+  fi
+  if docker_volume_exists "${FILESTORE_VOLUME}"; then
+    log_file "Volume ${FILESTORE_VOLUME} already exists"
+  else
+    docker volume create "${FILESTORE_VOLUME}" >/dev/null
+  fi
+}
+
+# Idempotent resume path with tidy terminal OK lines (used by --formsetup).
+resume_network_and_volumes() {
+  ui_wait "Checking Docker network and volumes for ${NETWORK_NAME}..."
+  local created=0
+  if docker_network_exists "${NETWORK_NAME}"; then
+    log_file "Network ${NETWORK_NAME} already present"
+  else
+    docker network create "${NETWORK_NAME}" >>"${LOG_FILE}" 2>&1
+    created=1
+  fi
+  if docker_volume_exists "${DB_VOLUME}"; then
+    log_file "Volume ${DB_VOLUME} already present"
+  else
+    docker volume create "${DB_VOLUME}" >/dev/null
+    created=1
+  fi
+  if docker_volume_exists "${FILESTORE_VOLUME}"; then
+    log_file "Volume ${FILESTORE_VOLUME} already present"
+  else
+    docker volume create "${FILESTORE_VOLUME}" >/dev/null
+    created=1
+  fi
+  if (( created == 0 )); then
+    ui_ok "Volumes already present"
+  else
+    ui_ok "Network and volumes ready"
+  fi
 }
 
 wait_for_postgres() {
@@ -450,6 +582,40 @@ ensure_postgres_container() {
       "${DB_IMAGE}" >/dev/null
   fi
   wait_for_postgres
+}
+
+resume_postgres_container() {
+  if container_running "${DB_CONTAINER}"; then
+    ui_ok "PostgreSQL already running (${DB_CONTAINER})"
+    wait_for_postgres
+    return 0
+  fi
+  if container_exists "${DB_CONTAINER}"; then
+    ui_wait "Starting stopped PostgreSQL (${DB_CONTAINER})..."
+    docker start "${DB_CONTAINER}" >>"${LOG_FILE}" 2>&1
+    wait_for_postgres
+    ui_ok "PostgreSQL started (${DB_CONTAINER})"
+    return 0
+  fi
+  ui_wait "Creating PostgreSQL (${DB_CONTAINER})..."
+  ensure_postgres_container
+  ui_ok "PostgreSQL created (${DB_CONTAINER})"
+}
+
+resume_web_container() {
+  if container_running "${WEB_CONTAINER}"; then
+    ui_ok "Web ERP already running (${WEB_CONTAINER})"
+    return 0
+  fi
+  if container_exists "${WEB_CONTAINER}"; then
+    ui_wait "Starting stopped web ERP (${WEB_CONTAINER})..."
+    docker start "${WEB_CONTAINER}" >>"${LOG_FILE}" 2>&1
+    ui_ok "Web ERP started (${WEB_CONTAINER})"
+    return 0
+  fi
+  ui_wait "Creating web ERP (${WEB_CONTAINER})..."
+  launch_web_container
+  ui_ok "Web ERP created (${WEB_CONTAINER})"
 }
 
 ensure_custom_addons_dir() {
@@ -717,9 +883,25 @@ dns_validation_loop() {
   done
 }
 
-configure_nginx_global_limits() {
+# Ensure http-context map + ERP proxy limits exist. Prevents:
+#   nginx: [emerg] unknown "connection_upgrade" variable
+# Safe to call even when --init was skipped or interrupted.
+ensure_nginx_global_limits() {
+  local needs_write=0
+
   mkdir -p /etc/nginx/conf.d
-  cat > "${NGINX_LIMITS_CONF}" <<'EOF'
+
+  if [[ ! -f "${NGINX_LIMITS_CONF}" ]]; then
+    needs_write=1
+    log_file "Nginx limits file missing — will write ${NGINX_LIMITS_CONF}"
+  elif ! grep -Eq 'map[[:space:]]+\$http_upgrade[[:space:]]+\$connection_upgrade' "${NGINX_LIMITS_CONF}"; then
+    needs_write=1
+    log_file "Nginx limits file lacks connection_upgrade map — rewriting ${NGINX_LIMITS_CONF}"
+  fi
+
+  if (( needs_write == 1 )); then
+    ui_wait "Writing Nginx global limits (connection_upgrade map)..."
+    cat > "${NGINX_LIMITS_CONF}" <<'EOF'
 # Soviez ERP — global proxy limits for heavy ERP/Odoo traffic
 client_max_body_size 512M;
 proxy_read_timeout 720s;
@@ -731,6 +913,15 @@ map $http_upgrade $connection_upgrade {
     ''      close;
 }
 EOF
+    ui_ok "Nginx global limits written (${NGINX_LIMITS_CONF})"
+  else
+    log_file "Nginx global limits already present with connection_upgrade map"
+  fi
+}
+
+# Back-compat alias used by --init progress helper.
+configure_nginx_global_limits() {
+  ensure_nginx_global_limits
   if ! nginx -t >>"${LOG_FILE}" 2>&1; then
     ui_error "Nginx configuration test failed after writing ${NGINX_LIMITS_CONF}"
     return 1
@@ -743,6 +934,9 @@ write_nginx_site() {
   local host_port="$2"
   local site_file="/etc/nginx/sites-available/soviez-${domain}.conf"
   local enabled_link="/etc/nginx/sites-enabled/soviez-${domain}.conf"
+
+  # Defensive: never nginx -t a site that references $connection_upgrade without the map.
+  ensure_nginx_global_limits
 
   cat > "${site_file}" <<EOF
 # Soviez ERP tenant — ${domain} → 127.0.0.1:${host_port}
@@ -788,7 +982,7 @@ EOF
   rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
 
   if ! nginx -t >>"${LOG_FILE}" 2>&1; then
-    ui_error "Nginx site config failed for ${domain}"
+    ui_error "Nginx site config failed for ${domain} — see ${LOG_FILE}"
     return 1
   fi
   systemctl reload nginx >>"${LOG_FILE}" 2>&1
@@ -999,6 +1193,86 @@ EOF
 }
 
 # ===========================================================================
+# MODE: formsetup — idempotent resume / heal of latest half-configured tenant
+# ===========================================================================
+mode_formsetup() {
+  require_root --formsetup
+  ensure_log_file
+  require_cmd docker
+  require_cmd python3
+  ensure_host_ledger_dir
+
+  if ! command -v nginx >/dev/null 2>&1 || ! command -v certbot >/dev/null 2>&1; then
+    ui_error "Host not initialized. Run first: sudo ./setup.sh --init"
+    exit 1
+  fi
+
+  local target_index
+  target_index="$(select_formsetup_index)"
+  if (( target_index < 1 )); then
+    ui_error "No tenant environment sheet found. Provision with: sudo ./setup.sh --new"
+    exit 1
+  fi
+
+  apply_topology_indexed "${target_index}"
+  if [[ ! -f "${ENV_FILE}" ]]; then
+    ui_error "Missing environment sheet for index ${target_index}: ${ENV_FILE}"
+    exit 1
+  fi
+
+  load_env_file
+  require_complete_env
+
+  NETWORK_NAME="${SOVIEZ_NETWORK_NAME:-${NETWORK_NAME}}"
+  DB_CONTAINER="${SOVIEZ_DB_CONTAINER:-${DB_CONTAINER}}"
+  WEB_CONTAINER="${SOVIEZ_WEB_CONTAINER:-${WEB_CONTAINER}}"
+  DB_VOLUME="${SOVIEZ_DB_VOLUME:-${DB_VOLUME}}"
+  FILESTORE_VOLUME="${SOVIEZ_FILESTORE_VOLUME:-${FILESTORE_VOLUME}}"
+  INSTANCE_INDEX="${SOVIEZ_INSTANCE_INDEX:-${target_index}}"
+  CUSTOM_ADDONS_HOST_PATH="${SOVIEZ_CUSTOM_ADDONS_HOST:-${CUSTOM_ADDONS_HOST_PATH}}"
+  if [[ -z "${CUSTOM_ADDONS_HOST_PATH}" ]]; then
+    CUSTOM_ADDONS_HOST_PATH="/etc/soviez_web_${INSTANCE_INDEX}/addons"
+  fi
+  TENANT_DOMAIN="${SOVIEZ_TENANT_DOMAIN:-}"
+
+  if [[ -z "${TENANT_DOMAIN}" ]]; then
+    ui_error "${ENV_FILE} has no SOVIEZ_TENANT_DOMAIN — cannot resume Nginx/SSL."
+    exit 1
+  fi
+
+  print_border_box "Soviez ERP — Form Setup Recovery" \
+    "Resuming tenant index ${C_BOLD}#${INSTANCE_INDEX}${C_RESET} (${WEB_CONTAINER})" \
+    "Domain: ${C_BOLD}${TENANT_DOMAIN}${C_RESET}" \
+    "Env: ${ENV_FILE}" \
+    "" \
+    "Pipeline is idempotent: existing assets are kept; Nginx/SSL are rebuilt."
+
+  ui_info "Healing half-configured instance index=${INSTANCE_INDEX}"
+  ensure_custom_addons_dir
+
+  resume_network_and_volumes
+  resume_postgres_container
+  resume_web_container
+
+  ui_wait "Regenerating Nginx vhost + global limits for ${TENANT_DOMAIN}..."
+  if ! write_nginx_site "${TENANT_DOMAIN}" "${SOVIEZ_HOST_PORT}"; then
+    ui_error "Nginx recovery failed — see ${LOG_FILE}"
+    exit 1
+  fi
+  ui_ok "Nginx site ready for ${TENANT_DOMAIN}"
+
+  show_progress "Provisioning Let's Encrypt SSL for ${TENANT_DOMAIN}..." bash -c \
+    "certbot --nginx -d '${TENANT_DOMAIN}' --non-interactive --agree-tos --register-unsafely-without-email --redirect" \
+    || ui_warn "Certbot did not complete — HTTP site is live; re-run ./setup.sh --formsetup when DNS is ready."
+
+  print_elite_welcome \
+    "${TENANT_DOMAIN}" \
+    "${CUSTOM_ADDONS_HOST_PATH}" \
+    "${SOVIEZ_ADMIN_PASSWORD}" \
+    "${INSTANCE_INDEX}"
+}
+
+# ===========================================================================
 # MODE: update — pull image + recycle web runners (all envs)
 # ===========================================================================
 mode_update() {
@@ -1156,6 +1430,9 @@ case "${MODE}" in
     ;;
   new)
     mode_new
+    ;;
+  formsetup)
+    mode_formsetup
     ;;
   update)
     mode_update

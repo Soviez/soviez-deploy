@@ -78,12 +78,16 @@ sudo ./setup.sh --init
 
 # 2) Point your domain’s DNS A/AAAA record at this server, then provision the live tenant
 sudo ./setup.sh --new
+
+# 2b) If provisioning failed mid-flight on Nginx/SSL, heal and resume:
+sudo ./setup.sh --formsetup
 ```
 
 | Mode | Command | Role |
 |------|---------|------|
 | **Init** | `./setup.sh --init` (default) | Apt, Docker, Nginx, Certbot, UFW — host only |
 | **New** | `./setup.sh --new` | Domain + DNS check + isolated ERP/Postgres stack + HTTPS |
+| **Form setup** | `./setup.sh --formsetup` | Resume / heal the latest half-configured tenant (idempotent) |
 | **Update** | `./setup.sh --update` | Pull latest ERP image and upgrade schemas |
 | **Recover** | `./setup.sh --recoverdbpass` | Rotate Database Master Password |
 
@@ -138,6 +142,16 @@ sudo ./setup.sh --new
 ```
 
 Each run allocates the next index (`.soviez_1.env`, `.soviez_2.env`, …), creates sandboxed network/volume/container names, prepares `/etc/soviez_web_N/addons`, binds a free port from **8073**, validates DNS for your domain, issues TLS, and flashes the new Master Password.
+
+### 🩹 Form Setup — Resume a Failed Provision
+
+If `--new` stopped after writing secrets/containers but before HTTPS was fully online:
+
+```bash
+sudo ./setup.sh --formsetup
+```
+
+Resumes the latest half-configured tenant idempotently (keeps volumes, starts stopped containers, rewrites Nginx + Let's Encrypt, reprints the welcome banner and Master Password). Safe to re-run.
 
 ### Manual `docker run` (lab / equivalent topology)
 
