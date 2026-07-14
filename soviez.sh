@@ -6,6 +6,7 @@
 #   ./soviez.sh --new                  Provision isolated multi-tenant instance + DNS/SSL/addons
 #   ./soviez.sh --formsetup            Resume / heal the latest half-configured tenant (idempotent)
 #   ./soviez.sh --formssl [domain]     Diagnose / repair tenant HTTPS (LE or self-signed Cloudflare Full)
+#   ./soviez.sh --list                 List tenants (index, domain, docker status)
 #   ./soviez.sh --stage <tenant> <db>  Clone <db> → stage DB + filestore, then neutralize
 #   ./soviez.sh --dropstage <tenant> <db>  Drop staging DB + filestore (e.g. stage)
 #   ./soviez.sh --update               Pull soviez/soviez-erp:latest and recycle web runners
@@ -96,6 +97,9 @@ for arg in "$@"; do
     --dropstage)
       MODE="dropstage"
       ;;
+    --list)
+      MODE="list"
+      ;;
     --recoverdbpass)
       MODE="recover"
       ;;
@@ -106,6 +110,7 @@ Soviez ERP — production onboarding wizard
 Usage:
   ./soviez.sh [--init]                       Bootstrap host (apt, Docker, Nginx, Certbot, UFW)
   ./soviez.sh --new                          Provision a new isolated tenant (domain + SSL + addons)
+  ./soviez.sh --list                         List all tenants (domain + Docker status)
   ./soviez.sh --formsetup                    Resume / heal latest half-configured tenant
   ./soviez.sh --formssl [domain]             Diagnose / repair HTTPS (Let's Encrypt or self-signed)
   ./soviez.sh --stage <tenant> <source_db>   Clone source_db → stage (+ filestore), neutralize
@@ -118,6 +123,7 @@ Tenant refs for --stage / --dropstage:
   soviez-web-1 | soviez_web_1 | 1 | soviez-web (legacy primary)
 
 Examples:
+  sudo ./soviez.sh --list
   sudo ./soviez.sh --stage soviez-web-1 production
   sudo ./soviez.sh --dropstage soviez-web-1 stage
 
@@ -2539,9 +2545,139 @@ mode_dropstage() {
 }
 
 # ===========================================================================
+# MODE: list — administrative tenant dashboard (stdout only, no log writes)
+# ===========================================================================
+docker_web_status_label() {
+  local container="$1"
+  local status_raw=""
+
+  if ! command -v docker >/dev/null 2>&1; then
+    printf '%s\n' "⚪ Docker N/A"
+    return 0
+  fi
+
+  status_raw="$(docker inspect -f '{{.State.Status}}' "${container}" 2>/dev/null || true)"
+  case "${status_raw}" in
+    running)
+      printf '%s\n' "🟢 Running"
+      ;;
+    "")
+      printf '%s\n' "⚪ Not Found"
+      ;;
+    *)
+      # exited, created, restarting, dead, paused, …
+      printf '%s\n' "🔴 Stopped"
+      ;;
+  esac
+}
+
+list_tenants() {
+  local path base idx domain web_container status_label real
+  local -a env_paths=()
+  local -a seen_reals=()
+  local -a rows_idx=()
+  local -a rows_web=()
+  local -a rows_dom=()
+  local -a rows_st=()
+  local i skip prev count=0
+
+  # Prefer /root (canonical appliance root), then INSTANCE_ROOT / cwd.
+  shopt -s nullglob
+  for path in \
+      /root/.soviez_*.env \
+      "${INSTANCE_ROOT}"/.soviez_*.env \
+      "$(pwd)"/.soviez_*.env; do
+    [[ -f "${path}" ]] || continue
+    base="$(basename "${path}")"
+    [[ "${base}" =~ ^\.soviez_([0-9]+)\.env$ ]] || continue
+
+    real="$(readlink -f "${path}" 2>/dev/null || echo "${path}")"
+    skip=0
+    for prev in "${seen_reals[@]:-}"; do
+      if [[ "${prev}" == "${real}" ]]; then
+        skip=1
+        break
+      fi
+    done
+    (( skip == 1 )) && continue
+    seen_reals+=("${real}")
+    env_paths+=("${path}")
+  done
+  shopt -u nullglob
+
+  if ((${#env_paths[@]} == 0)); then
+    echo ""
+    echo "No Soviez tenant environment sheets found."
+    echo "  Looked in: /root  ${INSTANCE_ROOT}  $(pwd)"
+    echo "  Provision with: sudo ./soviez.sh --new"
+    echo ""
+    return 0
+  fi
+
+  # Sort by numeric index ascending
+  local sorted=""
+  sorted="$(
+    for path in "${env_paths[@]}"; do
+      base="$(basename "${path}")"
+      [[ "${base}" =~ ^\.soviez_([0-9]+)\.env$ ]] || continue
+      printf '%s\t%s\n' "${BASH_REMATCH[1]}" "${path}"
+    done | sort -n -k1,1
+  )"
+
+  while IFS=$'\t' read -r idx path; do
+    [[ -n "${idx}" && -n "${path}" ]] || continue
+
+    # Safe read — never `source` (malformed sheets must not crash the dashboard).
+    domain="$(grep -E '^SOVIEZ_TENANT_DOMAIN=' "${path}" 2>/dev/null | head -n1 | cut -d= -f2- || true)"
+    domain="${domain//$'\r'/}"
+    domain="${domain%\"}"
+    domain="${domain#\"}"
+    domain="${domain%\'}"
+    domain="${domain#\'}"
+    if [[ -z "${domain}" ]]; then
+      domain="[Malformed / No Domain]"
+    fi
+
+    web_container="$(grep -E '^SOVIEZ_WEB_CONTAINER=' "${path}" 2>/dev/null | head -n1 | cut -d= -f2- || true)"
+    web_container="${web_container//$'\r'/}"
+    if [[ -z "${web_container}" ]]; then
+      web_container="soviez-web-${idx}"
+    fi
+
+    status_label="$(docker_web_status_label "${web_container}")"
+
+    rows_idx+=("${idx}")
+    rows_web+=("${web_container}")
+    rows_dom+=("${domain}")
+    rows_st+=("${status_label}")
+    count=$((count + 1))
+  done <<< "${sorted}"
+
+  echo ""
+  echo -e "${C_BOLD}Soviez ERP — Tenant Inventory${C_RESET}"
+  echo -e "${C_DIM}${count} tenant sheet(s) discovered${C_RESET}"
+  echo ""
+  printf '+-------+----------------------+----------------------------------+-------------------+\n'
+  printf '| %-5s | %-20s | %-32s | %-17s |\n' \
+    "Index" "Web Container" "Linked Domain" "Docker Status"
+  printf '+-------+----------------------+----------------------------------+-------------------+\n'
+  for (( i = 0; i < count; i++ )); do
+    printf '| %-5s | %-20s | %-32s | %-17s |\n' \
+      "${rows_idx[$i]}" \
+      "${rows_web[$i]}" \
+      "${rows_dom[$i]}" \
+      "${rows_st[$i]}"
+  done
+  printf '+-------+----------------------+----------------------------------+-------------------+\n'
+  echo ""
+}
+
+# ===========================================================================
 # Dispatch
 # ===========================================================================
-ensure_log_file
+if [[ "${MODE}" != "list" ]]; then
+  ensure_log_file
+fi
 
 case "${MODE}" in
   init)
@@ -2549,6 +2685,9 @@ case "${MODE}" in
     ;;
   new)
     mode_new
+    ;;
+  list)
+    list_tenants
     ;;
   formsetup)
     mode_formsetup

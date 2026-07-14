@@ -92,6 +92,7 @@ sudo ./soviez.sh --formssl
 |------|---------|------|
 | **Init** | `./soviez.sh --init` (default) | Apt, Docker, Nginx, Certbot, UFW — host only |
 | **New** | `./soviez.sh --new` | Domain + DNS check + isolated ERP/Postgres stack + HTTPS |
+| **List** | `./soviez.sh --list` | Table of tenants (index, domain, Docker status) |
 | **Form setup** | `./soviez.sh --formsetup` | Resume / heal the latest half-configured tenant (idempotent) |
 | **Form SSL** | `./soviez.sh --formssl [domain]` | Diagnose / repair HTTPS (Let's Encrypt or self-signed) |
 | **Stage** | `./soviez.sh --stage <tenant> <source_db>` | Clone a live DB into neutralized `stage` (+ filestore) |
@@ -170,6 +171,14 @@ sudo ./soviez.sh --formssl erp.example.com
 ```
 
 Diagnoses the tenant vhost, retries Let's Encrypt, and if Certbot still fails keeps a self-signed `:443` cert so the site stays reachable with Cloudflare SSL set to **Full**. Never leaves the domain on HTTP-only (which lets other host panels capture HTTPS).
+
+### 📋 List — See All Tenants
+
+```bash
+sudo ./soviez.sh --list
+```
+
+Clean table of every `.soviez_N.env` sheet: index, web container, linked domain, and whether Docker reports the web runner as running.
 
 ### 🧪 Stage — Clone a Safe Test Database
 
