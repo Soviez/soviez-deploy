@@ -94,6 +94,8 @@ sudo ./soviez.sh --formssl
 | **New** | `./soviez.sh --new` | Domain + DNS check + isolated ERP/Postgres stack + HTTPS |
 | **Form setup** | `./soviez.sh --formsetup` | Resume / heal the latest half-configured tenant (idempotent) |
 | **Form SSL** | `./soviez.sh --formssl [domain]` | Diagnose / repair HTTPS (Let's Encrypt or self-signed) |
+| **Stage** | `./soviez.sh --stage <tenant> <source_db>` | Clone a live DB into neutralized `stage` (+ filestore) |
+| **Drop stage** | `./soviez.sh --dropstage <tenant> <db>` | Drop a staging DB + filestore |
 | **Update** | `./soviez.sh --update` | Pull latest ERP image and upgrade schemas |
 | **Recover** | `./soviez.sh --recoverdbpass` | Rotate Database Master Password |
 
@@ -168,6 +170,15 @@ sudo ./soviez.sh --formssl erp.example.com
 ```
 
 Diagnoses the tenant vhost, retries Let's Encrypt, and if Certbot still fails keeps a self-signed `:443` cert so the site stays reachable with Cloudflare SSL set to **Full**. Never leaves the domain on HTTP-only (which lets other host panels capture HTTPS).
+
+### 🧪 Stage — Clone a Safe Test Database
+
+```bash
+sudo ./soviez.sh --stage soviez-web-1 production
+sudo ./soviez.sh --dropstage soviez-web-1 stage
+```
+
+Duplicates a live database into **`stage`** (including filestore), runs neutralization for safe testing, and cleans up with `--dropstage` when you are done.
 
 ### Manual `docker run` (lab / equivalent topology)
 

@@ -6,6 +6,8 @@
 #   ./soviez.sh --new                  Provision isolated multi-tenant instance + DNS/SSL/addons
 #   ./soviez.sh --formsetup            Resume / heal the latest half-configured tenant (idempotent)
 #   ./soviez.sh --formssl [domain]     Diagnose / repair tenant HTTPS (LE or self-signed Cloudflare Full)
+#   ./soviez.sh --stage <tenant> <db>  Clone <db> → stage DB + filestore, then neutralize
+#   ./soviez.sh --dropstage <tenant> <db>  Drop staging DB + filestore (e.g. stage)
 #   ./soviez.sh --update               Pull soviez/soviez-erp:latest and recycle web runners
 #   ./soviez.sh --recoverdbpass        Rotate Database Master Password (primary / indexed via env)
 #
@@ -39,6 +41,13 @@ SSL_STATUS=""
 # Public IPv4 used for force-hijack Nginx listen ${PUBLIC_IP}:80/443
 PUBLIC_IP=""
 LAST_HTTPS_CODE=""
+# Staging mode arguments (--stage / --dropstage)
+STAGE_TENANT_REF=""
+STAGE_SOURCE_DB=""
+DROPSTAGE_TENANT_REF=""
+DROPSTAGE_DB=""
+readonly STAGE_DB_NAME="stage"
+readonly DB_APP_USER="soviez"
 
 # ---------------------------------------------------------------------------
 # Colors / UI
@@ -56,6 +65,14 @@ readonly C_BLUE=$'\033[0;34m'
 # Argument parser
 # ---------------------------------------------------------------------------
 MODE="init"
+strip_trailing_hyphens() {
+  local s="$1"
+  while [[ "${s}" == *- ]]; do
+    s="${s%-}"
+  done
+  printf '%s\n' "${s}"
+}
+
 for arg in "$@"; do
   case "${arg}" in
     --init)
@@ -73,6 +90,12 @@ for arg in "$@"; do
     --formssl)
       MODE="formssl"
       ;;
+    --stage)
+      MODE="stage"
+      ;;
+    --dropstage)
+      MODE="dropstage"
+      ;;
     --recoverdbpass)
       MODE="recover"
       ;;
@@ -81,21 +104,26 @@ for arg in "$@"; do
 Soviez ERP — production onboarding wizard
 
 Usage:
-  ./soviez.sh [--init]              Bootstrap host (apt, Docker, Nginx, Certbot, UFW)
-  ./soviez.sh --new                 Provision a new isolated tenant (domain + SSL + addons)
-  ./soviez.sh --formsetup           Resume / heal latest half-configured tenant (idempotent)
-  ./soviez.sh --formssl [domain]    Diagnose / repair HTTPS (Let's Encrypt or self-signed)
-  ./soviez.sh --update              Pull latest ERP image and recycle web containers
-  ./soviez.sh --recoverdbpass       Rotate Database Master Password
-  ./soviez.sh --help                Show this help
+  ./soviez.sh [--init]                       Bootstrap host (apt, Docker, Nginx, Certbot, UFW)
+  ./soviez.sh --new                          Provision a new isolated tenant (domain + SSL + addons)
+  ./soviez.sh --formsetup                    Resume / heal latest half-configured tenant
+  ./soviez.sh --formssl [domain]             Diagnose / repair HTTPS (Let's Encrypt or self-signed)
+  ./soviez.sh --stage <tenant> <source_db>   Clone source_db → stage (+ filestore), neutralize
+  ./soviez.sh --dropstage <tenant> <db>      Drop a staging DB + filestore (e.g. stage)
+  ./soviez.sh --update                       Pull latest ERP image and recycle web containers
+  ./soviez.sh --recoverdbpass                Rotate Database Master Password
+  ./soviez.sh --help                         Show this help
+
+Tenant refs for --stage / --dropstage:
+  soviez-web-1 | soviez_web_1 | 1 | soviez-web (legacy primary)
+
+Examples:
+  sudo ./soviez.sh --stage soviez-web-1 production
+  sudo ./soviez.sh --dropstage soviez-web-1 stage
 
 Images:
   soviez/soviez-erp:latest
   postgres:16
-
-SSL strategy:
-  Explicit public-IP listen (beats Virtualmin IP:443), self-signed baseline,
-  then Certbot. Post-provision curl verify + self-heal if routing is stolen.
 
 Verbose log:
   /var/log/soviez_setup.log
@@ -108,8 +136,17 @@ USAGE
       exit 1
       ;;
     *)
+      clean_arg="$(strip_trailing_hyphens "${arg}")"
       if [[ "${MODE}" == "formssl" && -z "${FORMSSL_DOMAIN}" ]]; then
-        FORMSSL_DOMAIN="${arg}"
+        FORMSSL_DOMAIN="${clean_arg}"
+      elif [[ "${MODE}" == "stage" && -z "${STAGE_TENANT_REF}" ]]; then
+        STAGE_TENANT_REF="${clean_arg}"
+      elif [[ "${MODE}" == "stage" && -z "${STAGE_SOURCE_DB}" ]]; then
+        STAGE_SOURCE_DB="${clean_arg}"
+      elif [[ "${MODE}" == "dropstage" && -z "${DROPSTAGE_TENANT_REF}" ]]; then
+        DROPSTAGE_TENANT_REF="${clean_arg}"
+      elif [[ "${MODE}" == "dropstage" && -z "${DROPSTAGE_DB}" ]]; then
+        DROPSTAGE_DB="${clean_arg}"
       else
         echo "[ERROR] Unknown argument: ${arg}" >&2
         echo "[ERROR] Try: ./soviez.sh --help" >&2
@@ -2109,6 +2146,399 @@ mode_recover() {
 }
 
 # ===========================================================================
+# Staging helpers (--stage / --dropstage)
+# ===========================================================================
+assert_safe_dbname() {
+  local name="$1"
+  if [[ ! "${name}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+    ui_error "Refusing unsafe database name: ${name}"
+    exit 1
+  fi
+}
+
+parse_tenant_index_from_ref() {
+  local ref="$1"
+  ref="$(strip_trailing_hyphens "${ref}")"
+  ref="${ref,,}"
+  ref="${ref//_/-}"
+
+  if [[ "${ref}" =~ ^[0-9]+$ ]]; then
+    printf '%s\n' "${ref}"
+    return 0
+  fi
+  if [[ "${ref}" =~ ^soviez-web-([0-9]+)$ ]]; then
+    printf '%s\n' "${BASH_REMATCH[1]}"
+    return 0
+  fi
+  if [[ "${ref}" =~ ^soviez-db-([0-9]+)$ ]]; then
+    printf '%s\n' "${BASH_REMATCH[1]}"
+    return 0
+  fi
+  if [[ "${ref}" =~ ^soviez-([0-9]+)$ ]]; then
+    printf '%s\n' "${BASH_REMATCH[1]}"
+    return 0
+  fi
+  if [[ "${ref}" == "soviez-web" || "${ref}" == "soviez-db" || "${ref}" == "primary" || "${ref}" == "soviez" ]]; then
+    printf '%s\n' "primary"
+    return 0
+  fi
+  return 1
+}
+
+load_tenant_topology_from_ref() {
+  local ref="$1"
+  local idx env_candidate
+
+  if ! idx="$(parse_tenant_index_from_ref "${ref}")"; then
+    ui_error "Cannot resolve tenant reference: ${ref}"
+    ui_error "Try: soviez-web-1 | soviez_web_1 | 1 | soviez-web"
+    exit 1
+  fi
+
+  if [[ "${idx}" == "primary" ]]; then
+    apply_topology_primary
+  else
+    apply_topology_indexed "${idx}"
+  fi
+
+  if [[ ! -f "${ENV_FILE}" ]]; then
+    for env_candidate in \
+        "${INSTANCE_ROOT}/.soviez_${idx}.env" \
+        "$(pwd)/.soviez_${idx}.env" \
+        "${INSTANCE_ROOT}/.soviez.env" \
+        "$(pwd)/.soviez.env"; do
+      if [[ -f "${env_candidate}" ]]; then
+        ENV_FILE="${env_candidate}"
+        break
+      fi
+    done
+  fi
+
+  if [[ ! -f "${ENV_FILE}" ]]; then
+    ui_error "Environment sheet not found for tenant '${ref}' (looked for ${ENV_FILE})"
+    exit 1
+  fi
+
+  load_env_file
+  require_complete_env
+
+  NETWORK_NAME="${SOVIEZ_NETWORK_NAME:-${NETWORK_NAME}}"
+  DB_CONTAINER="${SOVIEZ_DB_CONTAINER:-${DB_CONTAINER}}"
+  WEB_CONTAINER="${SOVIEZ_WEB_CONTAINER:-${WEB_CONTAINER}}"
+  DB_VOLUME="${SOVIEZ_DB_VOLUME:-${DB_VOLUME}}"
+  FILESTORE_VOLUME="${SOVIEZ_FILESTORE_VOLUME:-${FILESTORE_VOLUME}}"
+  INSTANCE_INDEX="${SOVIEZ_INSTANCE_INDEX:-${INSTANCE_INDEX}}"
+  CUSTOM_ADDONS_HOST_PATH="${SOVIEZ_CUSTOM_ADDONS_HOST:-${CUSTOM_ADDONS_HOST_PATH}}"
+
+  ui_ok "Resolved tenant env ${ENV_FILE}"
+  ui_info "DB=${DB_CONTAINER}  WEB=${WEB_CONTAINER}  FILESTORE=${FILESTORE_VOLUME}"
+}
+
+pg_terminate_db_connections() {
+  local dbname="$1"
+  assert_safe_dbname "${dbname}"
+  docker exec "${DB_CONTAINER}" \
+    psql -U "${DB_APP_USER}" -d postgres -v ON_ERROR_STOP=1 -c \
+    "SELECT pg_terminate_backend(pg_stat_activity.pid)
+     FROM pg_stat_activity
+     WHERE pg_stat_activity.datname = '${dbname}'
+       AND pid <> pg_backend_pid();" >>"${LOG_FILE}" 2>&1 || true
+}
+
+pg_database_exists() {
+  local dbname="$1"
+  local found
+  found="$(docker exec "${DB_CONTAINER}" \
+    psql -U "${DB_APP_USER}" -d postgres -Atc \
+    "SELECT 1 FROM pg_database WHERE datname = '${dbname}' LIMIT 1;" 2>/dev/null || true)"
+  [[ "${found}" == "1" ]]
+}
+
+clone_filestore_dir() {
+  local source_db="$1"
+  local target_db="$2"
+
+  ui_wait "Cloning filestore ${source_db} → ${target_db} on volume ${FILESTORE_VOLUME}..."
+  # Prefer docker-managed copy (works even when host Mountpoint is root-only).
+  if ! docker run --rm \
+      -v "${FILESTORE_VOLUME}:/fs" \
+      alpine:3.20 \
+      sh -c "set -e
+        if [ ! -d /fs/${source_db} ]; then
+          echo \"Source filestore missing: /fs/${source_db}\" >&2
+          exit 1
+        fi
+        rm -rf /fs/${target_db}
+        cp -a /fs/${source_db} /fs/${target_db}
+        # Odoo conventional uid/gid inside ERP images
+        chown -R 101:101 /fs/${target_db} 2>/dev/null || chown -R odoo:odoo /fs/${target_db} 2>/dev/null || true
+      " >>"${LOG_FILE}" 2>&1; then
+    # Fallback: host volume mountpoint
+    local mp
+    mp="$(docker volume inspect -f '{{.Mountpoint}}' "${FILESTORE_VOLUME}" 2>/dev/null || true)"
+    if [[ -z "${mp}" || ! -d "${mp}/${source_db}" ]]; then
+      ui_error "Filestore clone failed for ${source_db} → ${target_db} — see ${LOG_FILE}"
+      return 1
+    fi
+    rm -rf "${mp}/${target_db}"
+    cp -a "${mp}/${source_db}" "${mp}/${target_db}"
+    chown -R 101:101 "${mp}/${target_db}" 2>/dev/null || chown -R odoo:odoo "${mp}/${target_db}" 2>/dev/null || true
+  fi
+  ui_ok "Filestore cloned to ${target_db}"
+}
+
+remove_filestore_dir() {
+  local dbname="$1"
+  ui_wait "Removing filestore directory ${dbname} on ${FILESTORE_VOLUME}..."
+  if docker run --rm \
+      -v "${FILESTORE_VOLUME}:/fs" \
+      alpine:3.20 \
+      sh -c "rm -rf /fs/${dbname}" >>"${LOG_FILE}" 2>&1; then
+    ui_ok "Filestore ${dbname} removed"
+    return 0
+  fi
+  local mp
+  mp="$(docker volume inspect -f '{{.Mountpoint}}' "${FILESTORE_VOLUME}" 2>/dev/null || true)"
+  if [[ -n "${mp}" && -e "${mp}/${dbname}" ]]; then
+    rm -rf "${mp}/${dbname}"
+    ui_ok "Filestore ${dbname} removed (host path)"
+    return 0
+  fi
+  ui_warn "Filestore path for ${dbname} not found — nothing to delete"
+}
+
+mark_database_neutralized_sql() {
+  local dbname="$1"
+  assert_safe_dbname "${dbname}"
+  docker exec "${DB_CONTAINER}" \
+    psql -U "${DB_APP_USER}" -d "${dbname}" -v ON_ERROR_STOP=1 -c \
+    "UPDATE ir_config_parameter SET value = 'True', write_date = NOW()
+       WHERE key = 'database.is_neutralized';
+     INSERT INTO ir_config_parameter (key, value, create_uid, write_uid, create_date, write_date)
+     SELECT 'database.is_neutralized', 'True', 1, 1, NOW(), NOW()
+     WHERE NOT EXISTS (
+       SELECT 1 FROM ir_config_parameter WHERE key = 'database.is_neutralized'
+     );" >>"${LOG_FILE}" 2>&1
+}
+
+run_odoo_neutralize() {
+  local dbname="$1"
+  local addons_cli="/opt/soviez-erp/addons,/opt/soviez-erp/odoo/addons"
+  local -a volume_args=(
+    -v "${FILESTORE_VOLUME}:/root/.local/share/Odoo/filestore"
+    -v "${HOST_SOVIEZ_DIR}:/root/.soviez"
+  )
+
+  assert_safe_dbname "${dbname}"
+  ensure_host_ledger_dir
+  if [[ -n "${CUSTOM_ADDONS_HOST_PATH}" && -d "${CUSTOM_ADDONS_HOST_PATH}" ]]; then
+    volume_args+=(-v "${CUSTOM_ADDONS_HOST_PATH}:${CUSTOM_ADDONS_CONTAINER_PATH}")
+    addons_cli="${addons_cli},${CUSTOM_ADDONS_CONTAINER_PATH}"
+  fi
+
+  ui_wait "Running native neutralization on database ${dbname}..."
+  # Prefer one-shot maintenance container (same pattern as --update); avoids -u odoo if absent.
+  if docker run --rm \
+      --network "${NETWORK_NAME}" \
+      -e POSTGRES_USER="${DB_APP_USER}" \
+      -e POSTGRES_PASSWORD="${SOVIEZ_DB_PASSWORD}" \
+      -e PASSWORD="${SOVIEZ_DB_PASSWORD}" \
+      "${volume_args[@]}" \
+      "${APP_IMAGE}" \
+      python3 soviez-bin -c /opt/soviez-erp/soviez.conf \
+        --addons-path="${addons_cli}" \
+        --db_host="${DB_CONTAINER}" \
+        --db_port=5432 \
+        --db_user="${DB_APP_USER}" \
+        --db_password="${SOVIEZ_DB_PASSWORD}" \
+        --data-dir=/root/.local/share/Odoo \
+        --admin-passwd="${SOVIEZ_ADMIN_PASSWORD}" \
+        -d "${dbname}" --neutralize --stop-after-init >>"${LOG_FILE}" 2>&1; then
+    ui_ok "Neutralize completed for ${dbname}"
+    return 0
+  fi
+
+  # Fallback: exec into live web runner if present
+  if container_running "${WEB_CONTAINER}"; then
+    ui_warn "Maintenance neutralize failed — retrying via docker exec ${WEB_CONTAINER}..."
+    if docker exec "${WEB_CONTAINER}" \
+        python3 soviez-bin -c /opt/soviez-erp/soviez.conf \
+          --db_host="${DB_CONTAINER}" \
+          --db_port=5432 \
+          --db_user="${DB_APP_USER}" \
+          --db_password="${SOVIEZ_DB_PASSWORD}" \
+          --data-dir=/root/.local/share/Odoo \
+          -d "${dbname}" --neutralize --stop-after-init >>"${LOG_FILE}" 2>&1; then
+      ui_ok "Neutralize completed via ${WEB_CONTAINER}"
+      return 0
+    fi
+  fi
+
+  ui_error "Neutralize failed for ${dbname} — see ${LOG_FILE}"
+  return 1
+}
+
+# ===========================================================================
+# MODE: stage — clone live DB → stage + filestore, then neutralize
+# ===========================================================================
+mode_stage() {
+  ensure_log_file
+  require_cmd docker
+  require_cmd python3
+
+  if [[ -z "${STAGE_TENANT_REF}" || -z "${STAGE_SOURCE_DB}" ]]; then
+    ui_error "Usage: sudo ./soviez.sh --stage <tenant> <source_db>"
+    ui_error "Example: sudo ./soviez.sh --stage soviez-web-1 production"
+    exit 1
+  fi
+
+  assert_safe_dbname "${STAGE_SOURCE_DB}"
+  assert_safe_dbname "${STAGE_DB_NAME}"
+
+  if [[ "${STAGE_SOURCE_DB}" == "${STAGE_DB_NAME}" ]]; then
+    ui_error "Source database cannot be named '${STAGE_DB_NAME}'"
+    exit 1
+  fi
+
+  print_border_box "Soviez ERP — Staging Clone" \
+    "Tenant: ${C_BOLD}${STAGE_TENANT_REF}${C_RESET}" \
+    "Clone:  ${C_BOLD}${STAGE_SOURCE_DB}${C_RESET} → ${C_BOLD}${STAGE_DB_NAME}${C_RESET}" \
+    "Then neutralize staging for safe testing."
+
+  load_tenant_topology_from_ref "${STAGE_TENANT_REF}"
+
+  if ! container_running "${DB_CONTAINER}"; then
+    if container_exists "${DB_CONTAINER}"; then
+      ui_wait "Starting database container ${DB_CONTAINER}..."
+      docker start "${DB_CONTAINER}" >/dev/null
+    else
+      ui_error "Database container missing: ${DB_CONTAINER}"
+      exit 1
+    fi
+  fi
+  wait_for_postgres || exit 1
+
+  if ! pg_database_exists "${STAGE_SOURCE_DB}"; then
+    ui_error "Source database '${STAGE_SOURCE_DB}' does not exist on ${DB_CONTAINER}"
+    exit 1
+  fi
+
+  # ---- Step A: terminate connections on source ----
+  ui_wait "Terminating active connections to ${STAGE_SOURCE_DB}..."
+  pg_terminate_db_connections "${STAGE_SOURCE_DB}"
+  ui_ok "Connections terminated on ${STAGE_SOURCE_DB}"
+
+  # If stage already exists, drop it cleanly first (idempotent re-stage)
+  if pg_database_exists "${STAGE_DB_NAME}"; then
+    ui_warn "Staging database '${STAGE_DB_NAME}' already exists — replacing it"
+    pg_terminate_db_connections "${STAGE_DB_NAME}"
+    ui_wait "Dropping existing ${STAGE_DB_NAME}..."
+    docker exec "${DB_CONTAINER}" \
+      psql -U "${DB_APP_USER}" -d postgres -v ON_ERROR_STOP=1 -c \
+      "DROP DATABASE IF EXISTS \"${STAGE_DB_NAME}\";" >>"${LOG_FILE}" 2>&1
+    ui_ok "Dropped previous ${STAGE_DB_NAME}"
+  fi
+
+  # ---- Step B: CREATE DATABASE stage WITH TEMPLATE ----
+  ui_wait "Creating database ${STAGE_DB_NAME} WITH TEMPLATE ${STAGE_SOURCE_DB}..."
+  if ! docker exec "${DB_CONTAINER}" \
+      psql -U "${DB_APP_USER}" -d postgres -v ON_ERROR_STOP=1 -c \
+      "CREATE DATABASE \"${STAGE_DB_NAME}\" WITH TEMPLATE \"${STAGE_SOURCE_DB}\" OWNER ${DB_APP_USER};" \
+      >>"${LOG_FILE}" 2>&1; then
+    ui_error "CREATE DATABASE failed — ensure no sessions remain on ${STAGE_SOURCE_DB}. See ${LOG_FILE}"
+    exit 1
+  fi
+  ui_ok "Database ${STAGE_DB_NAME} cloned from ${STAGE_SOURCE_DB}"
+
+  # ---- Step C: clone filestore ----
+  if ! clone_filestore_dir "${STAGE_SOURCE_DB}" "${STAGE_DB_NAME}"; then
+    ui_warn "DB exists but filestore clone failed — dropstage and retry if attachments are required"
+    exit 1
+  fi
+
+  # ---- Step D: neutralize ----
+  if ! run_odoo_neutralize "${STAGE_DB_NAME}"; then
+    ui_warn "Native neutralize failed — applying SQL fail-safe only"
+  fi
+  ui_wait "Fail-safe: setting database.is_neutralized=True..."
+  if mark_database_neutralized_sql "${STAGE_DB_NAME}"; then
+    ui_ok "ir_config_parameter database.is_neutralized=True"
+  else
+    ui_error "Failed to set database.is_neutralized — see ${LOG_FILE}"
+    exit 1
+  fi
+
+  print_green_success "Staging ready: ${STAGE_DB_NAME} (from ${STAGE_SOURCE_DB})"
+  echo -e "  Tenant web: ${C_BOLD}${WEB_CONTAINER}${C_RESET}"
+  echo -e "  Select database ${C_CYAN}${STAGE_DB_NAME}${C_RESET} in the Web Database Manager / dbfilter UI"
+  echo -e "  Drop later: ${C_BOLD}sudo ./soviez.sh --dropstage ${STAGE_TENANT_REF} ${STAGE_DB_NAME}${C_RESET}"
+  echo -e "  Log: ${C_DIM}${LOG_FILE}${C_RESET}"
+  echo ""
+}
+
+# ===========================================================================
+# MODE: dropstage — drop staging DB + filestore
+# ===========================================================================
+mode_dropstage() {
+  ensure_log_file
+  require_cmd docker
+
+  if [[ -z "${DROPSTAGE_TENANT_REF}" || -z "${DROPSTAGE_DB}" ]]; then
+    ui_error "Usage: sudo ./soviez.sh --dropstage <tenant> <db_to_drop>"
+    ui_error "Example: sudo ./soviez.sh --dropstage soviez-web-1 stage"
+    exit 1
+  fi
+
+  assert_safe_dbname "${DROPSTAGE_DB}"
+
+  # Safety: never drop postgres system DB; warn if looks like a common production name without "stage"
+  if [[ "${DROPSTAGE_DB}" == "postgres" ]]; then
+    ui_error "Refusing to drop system database 'postgres'"
+    exit 1
+  fi
+
+  print_border_box "Soviez ERP — Drop Staging Database" \
+    "Tenant: ${C_BOLD}${DROPSTAGE_TENANT_REF}${C_RESET}" \
+    "Drop:   ${C_BOLD}${DROPSTAGE_DB}${C_RESET} (Postgres + filestore)"
+
+  load_tenant_topology_from_ref "${DROPSTAGE_TENANT_REF}"
+
+  if ! container_running "${DB_CONTAINER}"; then
+    if container_exists "${DB_CONTAINER}"; then
+      docker start "${DB_CONTAINER}" >/dev/null
+    else
+      ui_error "Database container missing: ${DB_CONTAINER}"
+      exit 1
+    fi
+  fi
+  wait_for_postgres || exit 1
+
+  # ---- Step A: DROP DATABASE ----
+  if pg_database_exists "${DROPSTAGE_DB}"; then
+    ui_wait "Terminating connections to ${DROPSTAGE_DB}..."
+    pg_terminate_db_connections "${DROPSTAGE_DB}"
+    ui_ok "Connections cleared"
+    ui_wait "Dropping database ${DROPSTAGE_DB}..."
+    if ! docker exec "${DB_CONTAINER}" \
+        psql -U "${DB_APP_USER}" -d postgres -v ON_ERROR_STOP=1 -c \
+        "DROP DATABASE IF EXISTS \"${DROPSTAGE_DB}\";" >>"${LOG_FILE}" 2>&1; then
+      ui_error "DROP DATABASE failed — see ${LOG_FILE}"
+      exit 1
+    fi
+    ui_ok "Database ${DROPSTAGE_DB} dropped"
+  else
+    ui_warn "Database ${DROPSTAGE_DB} not found — skipping DROP"
+  fi
+
+  # ---- Step B: clean filestore ----
+  remove_filestore_dir "${DROPSTAGE_DB}"
+
+  print_green_success "Staging cleanup complete: ${DROPSTAGE_DB}"
+  echo -e "  Log: ${C_DIM}${LOG_FILE}${C_RESET}"
+  echo ""
+}
+
+# ===========================================================================
 # Dispatch
 # ===========================================================================
 ensure_log_file
@@ -2125,6 +2555,12 @@ case "${MODE}" in
     ;;
   formssl)
     mode_formssl
+    ;;
+  stage)
+    mode_stage
+    ;;
+  dropstage)
+    mode_dropstage
     ;;
   update)
     mode_update
