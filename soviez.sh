@@ -251,6 +251,57 @@ USAGE
   esac
 done
 
+# ---------------------------------------------------------------------------
+# Self-preservation & auto-update
+# When piped (curl|bash) the wizard never lands on disk — operators then hit
+# "command not found" for sudo ./soviez.sh --new. Persist (and refresh) ./soviez.sh
+# for piped runs and every --init so the next step always works.
+# ---------------------------------------------------------------------------
+readonly SOVIEZ_SH_PUBLIC_URL="https://soviez.sh"
+readonly SOVIEZ_SH_LOCAL_PATH="./soviez.sh"
+
+is_piped_execution() {
+  local zero="${0:-}"
+  local base
+  base="$(basename -- "${zero}" 2>/dev/null || printf '%s\n' "${zero}")"
+
+  # curl -sSL … | bash  →  $0 is the interpreter name
+  case "${base}" in
+    bash|sh|dash|zsh|-bash|-sh) return 0 ;;
+  esac
+
+  # Process substitution / FIFO feeds (e.g. bash <(curl …))
+  case "${zero}" in
+    /dev/fd/*|/proc/self/fd/*) return 0 ;;
+  esac
+
+  # $0 is not a real on-disk script path
+  if [[ ! -f "${zero}" ]]; then
+    return 0
+  fi
+
+  return 1
+}
+
+ensure_local_soviez_sh() {
+  # Best-effort: never abort the rest of the wizard if the download fails.
+  if ! command -v curl >/dev/null 2>&1; then
+    echo -e "${C_YELLOW}[WARN]${C_RESET} curl not found — could not save ${SOVIEZ_SH_LOCAL_PATH} locally." >&2
+    return 0
+  fi
+
+  if curl -fsSL "${SOVIEZ_SH_PUBLIC_URL}" -o "${SOVIEZ_SH_LOCAL_PATH}"; then
+    chmod +x "${SOVIEZ_SH_LOCAL_PATH}" || true
+    echo -e "${C_GREEN}[OK]${C_RESET}   ${C_CYAN}Soviez ERP wizard saved locally as ${C_BOLD}./soviez.sh${C_RESET}"
+  else
+    echo -e "${C_YELLOW}[WARN]${C_RESET} Failed to download installer to ./soviez.sh — continuing." >&2
+  fi
+}
+
+if is_piped_execution || [[ "${MODE}" == "init" ]]; then
+  ensure_local_soviez_sh
+fi
+
 umask 077
 
 # ---------------------------------------------------------------------------
@@ -2291,8 +2342,9 @@ mode_init() {
   ensure_ufw
 
   print_green_success "Host environment successfully initialized!"
-  echo -e "  You can now provision instances using:"
+  echo -e "  You can now provision tenants using:"
   echo -e "    ${C_BOLD}sudo ./soviez.sh --new${C_RESET}"
+  echo -e "  ${C_DIM}Local wizard path: $(pwd)/soviez.sh${C_RESET}"
   echo -e "  Log file: ${C_DIM}${LOG_FILE}${C_RESET}"
   echo ""
 }
