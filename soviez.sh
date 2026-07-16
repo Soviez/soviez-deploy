@@ -1634,7 +1634,7 @@ odoo_maintenance_conf_path() {
 # One-shot Odoo job on the tenant network (no MAC — never clashes with soviez-web-N).
 # Extra args are appended after the common soviez-bin connection flags.
 # Usage: run_odoo_maintenance -- -d production -i base,... --without-demo=all --stop-after-init
-#    or: printf script | run_odoo_maintenance_stdin -- -d production --stop-after-init shell
+#    or: printf script | run_odoo_maintenance_stdin -d production --stop-after-init
 run_odoo_maintenance() {
   local addons_cli conf_path
   local -a volume_args=()
@@ -1668,7 +1668,8 @@ run_odoo_maintenance() {
   return "${rc}"
 }
 
-# Same as run_odoo_maintenance but keeps stdin open (for Odoo shell scripts).
+# Same as run_odoo_maintenance but runs the `shell` subcommand (stdin scripts).
+# CLI must be: soviez-bin shell [options] — NOT options then trailing "shell".
 run_odoo_maintenance_stdin() {
   local addons_cli conf_path
   local -a volume_args=()
@@ -1690,7 +1691,7 @@ run_odoo_maintenance_stdin() {
     -e "SOVIEZ_RESET_PASS_B64=${SOVIEZ_RESET_PASS_B64:-}" \
     "${volume_args[@]}" \
     "${APP_IMAGE}" \
-    python3 soviez-bin -c "${conf_path}" \
+    python3 soviez-bin shell -c "${conf_path}" \
       --addons-path="${addons_cli}" \
       --db_host="${DB_CONTAINER}" \
       --db_port=5432 \
@@ -1736,7 +1737,7 @@ PY
   SOVIEZ_RESET_PASS_B64="${pass_b64}"
   set +e
   printf '%s\n' "${py_script}" | run_odoo_maintenance_stdin \
-    -d "${dbname}" --stop-after-init shell
+    -d "${dbname}" --stop-after-init
   rc=$?
   set -e
   unset SOVIEZ_RESET_LOGIN_B64 SOVIEZ_RESET_PASS_B64
@@ -4394,35 +4395,18 @@ PY
 )"
 
   set +e
-  # Prefer -u odoo when available; fall back to container default user.
-  printf '%s\n' "${py_script}" | docker exec -i \
-      -e "SOVIEZ_RESET_LOGIN_B64=${login_b64}" \
-      -e "SOVIEZ_RESET_PASS_B64=${pass_b64}" \
-      -u odoo \
-      "${WEB_CONTAINER}" \
-      python3 soviez-bin -c /opt/soviez-erp/soviez.conf \
-        --db_host="${DB_CONTAINER}" \
-        --db_port=5432 \
-        --db_user="${DB_APP_USER}" \
-        --db_password="${SOVIEZ_DB_PASSWORD}" \
-        --data-dir=/root/.local/share/Odoo \
-        -d "${RESET_DB}" --stop-after-init shell >>"${LOG_FILE}" 2>&1
+  SOVIEZ_RESET_LOGIN_B64="${login_b64}"
+  SOVIEZ_RESET_PASS_B64="${pass_b64}"
+  printf '%s\n' "${py_script}" | run_odoo_maintenance_stdin \
+    -d "${RESET_DB}" --stop-after-init
   rc=$?
-  if (( rc != 0 )); then
-    printf '%s\n' "${py_script}" | docker exec -i \
-        -e "SOVIEZ_RESET_LOGIN_B64=${login_b64}" \
-        -e "SOVIEZ_RESET_PASS_B64=${pass_b64}" \
-        "${WEB_CONTAINER}" \
-        python3 soviez-bin -c /opt/soviez-erp/soviez.conf \
-          --db_host="${DB_CONTAINER}" \
-          --db_port=5432 \
-          --db_user="${DB_APP_USER}" \
-          --db_password="${SOVIEZ_DB_PASSWORD}" \
-          --data-dir=/root/.local/share/Odoo \
-          -d "${RESET_DB}" --stop-after-init shell >>"${LOG_FILE}" 2>&1
-    rc=$?
-  fi
+  unset SOVIEZ_RESET_LOGIN_B64 SOVIEZ_RESET_PASS_B64
   set -e
+
+  # Restart web if it was part of a live tenant (maintenance stops it).
+  if container_exists "${WEB_CONTAINER}" && ! container_running "${WEB_CONTAINER}"; then
+    docker start "${WEB_CONTAINER}" >>"${LOG_FILE}" 2>&1 || true
+  fi
 
   if (( rc != 0 )); then
     ui_error "Password reset failed — see ${LOG_FILE}"
