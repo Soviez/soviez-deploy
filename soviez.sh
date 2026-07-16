@@ -1111,40 +1111,73 @@ persist_resource_tuning_env() {
   load_env_file
 }
 
-postgres_tuning_run_args() {
-  local -a args=()
-  if [[ -n "${SOVIEZ_PG_SHARED_BUFFERS_MB:-${PG_SHARED_MB}}" ]]; then
-    args+=(postgres -c "shared_buffers=${SOVIEZ_PG_SHARED_BUFFERS_MB:-${PG_SHARED_MB}}MB")
-    args+=(-c "effective_cache_size=${SOVIEZ_PG_EFFECTIVE_CACHE_MB:-${PG_EFFECTIVE_MB}}MB")
-    args+=(-c "maintenance_work_mem=64MB")
-    args+=(-c "work_mem=16MB")
+# /dev/shm must fit PostgreSQL shared_buffers (Docker default 64m is too small when tuned).
+postgres_shm_size() {
+  local shared_mb="${SOVIEZ_PG_SHARED_BUFFERS_MB:-${PG_SHARED_MB:-0}}"
+  if [[ "${shared_mb}" =~ ^[0-9]+$ ]] && (( shared_mb > 0 )); then
+    printf '%sm\n' "$(( shared_mb + 64 ))"
+  else
+    printf '%s\n' "64m"
   fi
-  printf '%s\0' "${args[@]}"
+}
+
+# Launch (or recreate) the tenant Postgres engine. CMD args are separate words —
+# NEVER serialize via $(…) with NULs (bash strips \\0 and concatenates into
+# "postgres-cshared_buffers=…", which is exactly the Safe Restart crash).
+run_postgres_container() {
+  local shared_mb="${SOVIEZ_PG_SHARED_BUFFERS_MB:-${PG_SHARED_MB:-}}"
+  local effective_mb="${SOVIEZ_PG_EFFECTIVE_CACHE_MB:-${PG_EFFECTIVE_MB:-}}"
+  local shm_size
+  local run_rc=0
+  shm_size="$(postgres_shm_size)"
+
+  set +e
+  if [[ -n "${shared_mb}" ]]; then
+    docker run -d \
+      --name "${DB_CONTAINER}" \
+      --restart unless-stopped \
+      --network "${NETWORK_NAME}" \
+      --shm-size="${shm_size}" \
+      -e POSTGRES_DB=postgres \
+      -e POSTGRES_USER=soviez \
+      -e POSTGRES_PASSWORD="${SOVIEZ_DB_PASSWORD}" \
+      -e PASSWORD="${SOVIEZ_DB_PASSWORD}" \
+      -v "${DB_VOLUME}:/var/lib/postgresql/data" \
+      "${DB_IMAGE}" \
+      postgres \
+      -c "shared_buffers=${shared_mb}MB" \
+      -c "effective_cache_size=${effective_mb}MB" \
+      -c "maintenance_work_mem=64MB" \
+      -c "work_mem=16MB" >>"${LOG_FILE}" 2>&1
+    run_rc=$?
+  else
+    docker run -d \
+      --name "${DB_CONTAINER}" \
+      --restart unless-stopped \
+      --network "${NETWORK_NAME}" \
+      --shm-size="${shm_size}" \
+      -e POSTGRES_DB=postgres \
+      -e POSTGRES_USER=soviez \
+      -e POSTGRES_PASSWORD="${SOVIEZ_DB_PASSWORD}" \
+      -e PASSWORD="${SOVIEZ_DB_PASSWORD}" \
+      -v "${DB_VOLUME}:/var/lib/postgresql/data" \
+      "${DB_IMAGE}" >>"${LOG_FILE}" 2>&1
+    run_rc=$?
+  fi
+  set -e
+
+  if (( run_rc != 0 )); then
+    ui_error "Failed to start ${DB_CONTAINER} (docker run exit ${run_rc}) — see ${LOG_FILE}"
+    return "${run_rc}"
+  fi
+  return 0
 }
 
 recreate_postgres_with_tuning() {
-  local -a pg_cmd=()
-  local blob
-  blob="$(postgres_tuning_run_args)"
-  if [[ -n "${blob}" ]]; then
-    IFS=$'\0' read -r -a pg_cmd <<< "${blob}"
-  fi
-
   ui_wait "Recreating ${DB_CONTAINER} on volume ${DB_VOLUME} with tuned PostgreSQL buffers..."
-  docker run -d \
-    --name "${DB_CONTAINER}" \
-    --restart unless-stopped \
-    --network "${NETWORK_NAME}" \
-    -e POSTGRES_DB=postgres \
-    -e POSTGRES_USER=soviez \
-    -e POSTGRES_PASSWORD="${SOVIEZ_DB_PASSWORD}" \
-    -e PASSWORD="${SOVIEZ_DB_PASSWORD}" \
-    -v "${DB_VOLUME}:/var/lib/postgresql/data" \
-    "${DB_IMAGE}" \
-    "${pg_cmd[@]}" >>"${LOG_FILE}" 2>&1
-
-  wait_for_postgres
-  ui_ok "PostgreSQL ${DB_CONTAINER} online with tuned buffers"
+  run_postgres_container || return 1
+  wait_for_postgres || return 1
+  ui_ok "PostgreSQL ${DB_CONTAINER} online with tuned buffers (shm-size=$(postgres_shm_size))"
 }
 
 apply_tenant_resource_tuning() {
@@ -1170,7 +1203,7 @@ apply_tenant_resource_tuning() {
     docker rm "${DB_CONTAINER}" >>"${LOG_FILE}" 2>&1 || true
   fi
 
-  recreate_postgres_with_tuning
+  recreate_postgres_with_tuning || return 1
 
   conf_set_option "${conf_path}" workers "${WORKERS}"
   conf_set_option "${conf_path}" limit_memory_soft "${LIMIT_SOFT_BYTES}"
@@ -1189,7 +1222,7 @@ apply_tenant_resource_tuning() {
   ui_ok "Resource tuning complete for ${WEB_CONTAINER}"
   echo -e "  ${C_DIM}Config:${C_RESET} ${conf_path}"
   echo -e "  ${C_DIM}Workers:${C_RESET} ${WORKERS}  ${C_DIM}Soft/Hard:${C_RESET} $(( LIMIT_SOFT_BYTES / 1024 / 1024 ))MB / $(( LIMIT_HARD_BYTES / 1024 / 1024 ))MB"
-  echo -e "  ${C_DIM}PostgreSQL:${C_RESET} shared_buffers=${PG_SHARED_MB}MB  effective_cache_size=${PG_EFFECTIVE_MB}MB"
+  echo -e "  ${C_DIM}PostgreSQL:${C_RESET} shared_buffers=${PG_SHARED_MB}MB  effective_cache_size=${PG_EFFECTIVE_MB}MB  shm-size=$(postgres_shm_size)"
 }
 
 prompt_resource_tuning_on_new() {
@@ -1223,35 +1256,7 @@ ensure_postgres_container() {
   elif container_exists "${DB_CONTAINER}"; then
     docker start "${DB_CONTAINER}" >/dev/null
   else
-    local -a pg_cmd=() blob
-    blob="$(postgres_tuning_run_args)"
-    if [[ -n "${blob}" ]]; then
-      IFS=$'\0' read -r -a pg_cmd <<< "${blob}"
-    fi
-    if ((${#pg_cmd[@]} > 0)); then
-      docker run -d \
-        --name "${DB_CONTAINER}" \
-        --restart unless-stopped \
-        --network "${NETWORK_NAME}" \
-        -e POSTGRES_DB=postgres \
-        -e POSTGRES_USER=soviez \
-        -e POSTGRES_PASSWORD="${SOVIEZ_DB_PASSWORD}" \
-        -e PASSWORD="${SOVIEZ_DB_PASSWORD}" \
-        -v "${DB_VOLUME}:/var/lib/postgresql/data" \
-        "${DB_IMAGE}" \
-        "${pg_cmd[@]}" >/dev/null
-    else
-      docker run -d \
-        --name "${DB_CONTAINER}" \
-        --restart unless-stopped \
-        --network "${NETWORK_NAME}" \
-        -e POSTGRES_DB=postgres \
-        -e POSTGRES_USER=soviez \
-        -e POSTGRES_PASSWORD="${SOVIEZ_DB_PASSWORD}" \
-        -e PASSWORD="${SOVIEZ_DB_PASSWORD}" \
-        -v "${DB_VOLUME}:/var/lib/postgresql/data" \
-        "${DB_IMAGE}" >/dev/null
-    fi
+    run_postgres_container || return 1
   fi
   wait_for_postgres
 }
