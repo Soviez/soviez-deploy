@@ -911,7 +911,16 @@ host_total_cpu_cores() {
   nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2
 }
 
-tenant_odoo_conf_path() {
+# Tenant runtime config (100% Soviez-branded filenames — zero "odoo" in conf paths):
+#   Host:      /var/soviez/volumes/soviez-web-N/conf/tenant.soviez.conf  ← tuned by --formworkers
+#   Container: bind-mounted RO as /opt/soviez-erp/tenant.soviez.conf
+#   Image:     /opt/soviez-erp/soviez.conf (lab/CMD default; separate from per-tenant file)
+tenant_soviez_conf_path() {
+  printf '%s/%s/conf/tenant.soviez.conf\n' "${SOVIEZ_VOLUME_ROOT}" "${WEB_CONTAINER}"
+}
+
+# Legacy path from pre-rebrand installs (migrate once, then unused).
+tenant_legacy_odoo_conf_path() {
   printf '%s/%s/conf/odoo.conf\n' "${SOVIEZ_VOLUME_ROOT}" "${WEB_CONTAINER}"
 }
 
@@ -948,12 +957,21 @@ conf_set_option() {
   chmod 640 "${file}" 2>/dev/null || true
 }
 
-ensure_tenant_odoo_conf() {
+ensure_tenant_soviez_conf() {
   local conf_path dir
-  conf_path="$(tenant_odoo_conf_path)"
+  conf_path="$(tenant_soviez_conf_path)"
   dir="$(dirname "${conf_path}")"
   mkdir -p "${dir}"
   chmod 755 "${SOVIEZ_VOLUME_ROOT}" "${SOVIEZ_VOLUME_ROOT}/${WEB_CONTAINER}" "${dir}" 2>/dev/null || true
+
+  # One-time migration from pre-rebrand host filename.
+  local legacy_path
+  legacy_path="$(tenant_legacy_odoo_conf_path)"
+  if [[ ! -f "${conf_path}" && -f "${legacy_path}" ]]; then
+    mv "${legacy_path}" "${conf_path}"
+    log_file "Migrated legacy conf ${legacy_path} → ${conf_path}"
+    ui_ok "Migrated tenant config to tenant.soviez.conf"
+  fi
 
   if [[ ! -f "${conf_path}" ]]; then
     cat > "${conf_path}" <<EOF
@@ -967,7 +985,7 @@ data_dir = /root/.local/share/Odoo
 list_db = False
 EOF
     chmod 640 "${conf_path}"
-    log_file "Created tenant runtime odoo.conf at ${conf_path}"
+    log_file "Created tenant runtime tenant.soviez.conf at ${conf_path}"
   fi
 }
 
@@ -994,7 +1012,21 @@ collect_tenant_env_paths() {
   printf '%s\n' "${paths[@]}"
 }
 
-# Sum reserved RAM (MB) and CPU cores from env sheets + odoo.conf files.
+# Resolve host tenant conf for a web container name (branded path, else legacy).
+tenant_conf_path_for_web() {
+  local web="$1"
+  local branded legacy
+  branded="${SOVIEZ_VOLUME_ROOT}/${web}/conf/tenant.soviez.conf"
+  legacy="${SOVIEZ_VOLUME_ROOT}/${web}/conf/odoo.conf"
+  if [[ -f "${branded}" ]]; then
+    printf '%s\n' "${branded}"
+  elif [[ -f "${legacy}" ]]; then
+    printf '%s\n' "${legacy}"
+  else
+    printf '%s\n' "${branded}"
+  fi
+}
+
 # Optional $1 = WEB_CONTAINER name to exclude (when allocating for that tenant).
 scan_reserved_resources() {
   local exclude_web="${1:-}"
@@ -1012,8 +1044,10 @@ scan_reserved_resources() {
     pg_mb="$(grep -E '^SOVIEZ_PG_SHARED_BUFFERS_MB=' "${path}" 2>/dev/null | head -n1 | cut -d= -f2- || true)"
 
     if [[ -z "${ram_mb}" || ! "${ram_mb}" =~ ^[0-9]+$ ]]; then
-      workers="$(conf_get_option "${SOVIEZ_VOLUME_ROOT}/${web}/conf/odoo.conf" workers || true)"
-      hard="$(conf_get_option "${SOVIEZ_VOLUME_ROOT}/${web}/conf/odoo.conf" limit_memory_hard || true)"
+      local conf_file
+      conf_file="$(tenant_conf_path_for_web "${web}")"
+      workers="$(conf_get_option "${conf_file}" workers || true)"
+      hard="$(conf_get_option "${conf_file}" limit_memory_hard || true)"
       if [[ -n "${workers}" && "${workers}" =~ ^[0-9]+$ && "${workers}" -gt 0 ]]; then
         ram_mb=$(( workers * 800 ))
       elif [[ -n "${hard}" && "${hard}" =~ ^[0-9]+$ ]]; then
@@ -1027,7 +1061,9 @@ scan_reserved_resources() {
     if [[ -z "${cpu_cores}" || ! "${cpu_cores}" =~ ^[0-9]+$ ]]; then
       cpu_cores="$(grep -E '^SOVIEZ_DOCKER_CPUS=' "${path}" 2>/dev/null | head -n1 | cut -d= -f2- || true)"
       if [[ -z "${cpu_cores}" || ! "${cpu_cores}" =~ ^[0-9]+$ ]]; then
-        workers="$(conf_get_option "${SOVIEZ_VOLUME_ROOT}/${web}/conf/odoo.conf" workers || true)"
+        local conf_file_cpu
+        conf_file_cpu="$(tenant_conf_path_for_web "${web}")"
+        workers="$(conf_get_option "${conf_file_cpu}" workers || true)"
         if [[ -n "${workers}" && "${workers}" =~ ^[0-9]+$ && "${workers}" -gt 0 ]]; then
           cpu_cores=$(( (workers - 1) / 2 ))
           (( cpu_cores < 1 )) && cpu_cores=1
@@ -1256,9 +1292,9 @@ recreate_postgres_with_tuning() {
 }
 
 apply_tenant_resource_tuning() {
-  ensure_tenant_odoo_conf
+  ensure_tenant_soviez_conf
   local conf_path
-  conf_path="$(tenant_odoo_conf_path)"
+  conf_path="$(tenant_soviez_conf_path)"
 
   persist_resource_tuning_env
 
@@ -1291,7 +1327,7 @@ apply_tenant_resource_tuning() {
     --memory-swap="${DOCKER_MEM_MB}m" \
     "${WEB_CONTAINER}" >>"${LOG_FILE}" 2>&1
 
-  ui_wait "Starting ${WEB_CONTAINER} with updated odoo.conf..."
+  ui_wait "Starting ${WEB_CONTAINER} with updated tenant.soviez.conf..."
   docker start "${WEB_CONTAINER}" >>"${LOG_FILE}" 2>&1
 
   ui_ok "Resource tuning complete for ${WEB_CONTAINER}"
@@ -1381,13 +1417,13 @@ _docker_run_web_container() {
 
   ensure_host_ledger_dir
   ensure_custom_addons_dir
-  ensure_tenant_odoo_conf
-  runtime_conf="$(tenant_odoo_conf_path)"
+  ensure_tenant_soviez_conf
+  runtime_conf="$(tenant_soviez_conf_path)"
 
   volume_args+=(
     -v "${FILESTORE_VOLUME}:/root/.local/share/Odoo/filestore"
     -v "${HOST_SOVIEZ_DIR}:/root/.soviez"
-    -v "${runtime_conf}:/opt/soviez-erp/tenant.odoo.conf:ro"
+    -v "${runtime_conf}:/opt/soviez-erp/tenant.soviez.conf:ro"
   )
 
   addons_cli="/opt/soviez-erp/addons,/opt/soviez-erp/odoo/addons"
@@ -1418,7 +1454,7 @@ _docker_run_web_container() {
     "${docker_limits[@]}" \
     "${volume_args[@]}" \
     "${APP_IMAGE}" \
-    python3 soviez-bin -c /opt/soviez-erp/tenant.odoo.conf \
+    python3 soviez-bin -c /opt/soviez-erp/tenant.soviez.conf \
       --addons-path="${addons_cli}" \
       --db_host="${DB_CONTAINER}" \
       --db_port=5432 \
@@ -1443,7 +1479,7 @@ start_web_container() {
 
   ensure_host_ledger_dir
   ensure_custom_addons_dir
-  ensure_tenant_odoo_conf
+  ensure_tenant_soviez_conf
 
   if (( force == 1 )) && container_exists "${WEB_CONTAINER}"; then
     docker rm -f "${WEB_CONTAINER}" >>"${LOG_FILE}" 2>&1 || true
@@ -1601,10 +1637,10 @@ odoo_maintenance_volume_args() {
   )
   ensure_host_ledger_dir
   ensure_custom_addons_dir
-  ensure_tenant_odoo_conf
-  runtime_conf="$(tenant_odoo_conf_path)"
+  ensure_tenant_soviez_conf
+  runtime_conf="$(tenant_soviez_conf_path)"
   if [[ -f "${runtime_conf}" ]]; then
-    _out+=(-v "${runtime_conf}:/opt/soviez-erp/tenant.odoo.conf:ro")
+    _out+=(-v "${runtime_conf}:/opt/soviez-erp/tenant.soviez.conf:ro")
   fi
   if [[ -n "${CUSTOM_ADDONS_HOST_PATH:-}" && -d "${CUSTOM_ADDONS_HOST_PATH}" ]]; then
     _out+=(-v "${CUSTOM_ADDONS_HOST_PATH}:${CUSTOM_ADDONS_CONTAINER_PATH}")
@@ -1623,9 +1659,9 @@ stop_web_for_maintenance() {
 # Config path inside maintenance one-shots (tenant bind if present, else image default).
 odoo_maintenance_conf_path() {
   local runtime_conf
-  runtime_conf="$(tenant_odoo_conf_path)"
+  runtime_conf="$(tenant_soviez_conf_path)"
   if [[ -f "${runtime_conf}" ]]; then
-    printf '%s\n' "/opt/soviez-erp/tenant.odoo.conf"
+    printf '%s\n' "/opt/soviez-erp/tenant.soviez.conf"
   else
     printf '%s\n' "/opt/soviez-erp/soviez.conf"
   fi
@@ -3281,7 +3317,7 @@ mode_formworkers() {
     "Env: ${ENV_FILE}" \
     "" \
     "Safe restart pipeline: stop web → recycle DB engine (volume kept) →" \
-    "update odoo.conf → apply Docker limits → start web."
+    "update tenant.soviez.conf → apply Docker limits → start web."
 
   compute_allocation_for_tenant "${WEB_CONTAINER}"
   apply_tenant_resource_tuning
