@@ -51,7 +51,7 @@ Because Soviez ERP operates on a strict, hardened secure cookie architecture (`s
 
 > **Critical:** Deploying against plain `http://` or a bare IP address will appear to “log in” and then immediately drop the session. Production traffic **must** terminate TLS at a reverse proxy before reaching the application container.
 
-The official installer configures **Nginx + HTTPS** when you provision a tenant with `./soviez.sh --new`. You need a domain whose DNS points at your server.
+The official installer configures **Nginx + HTTPS** when you provision a tenant with `./soviez.sh --new`. Point DNS at your server (direct A/AAAA) or place Cloudflare Proxy (🟠) in front — both pass DNS validation. The wizard auto-updates itself from [soviez-deploy](https://github.com/Soviez/soviez-deploy) before each run.
 
 The wizard always binds **port 443** immediately (self-signed baseline), then upgrades to Let's Encrypt when Certbot can reach the host. If Certbot fails (common with Cloudflare proxied 🟠 records), HTTPS stays online on the self-signed cert — set Cloudflare SSL/TLS to **Full**. Repair later with `./soviez.sh --formssl`.
 
@@ -81,7 +81,7 @@ chmod +x soviez.sh
 # 1) Prepare the host (Docker, Nginx, Certbot, firewall) — no ERP containers yet
 sudo ./soviez.sh --init
 
-# 2) Point your domain’s DNS A/AAAA record at this server, then provision the live tenant
+# 2) Point DNS at this server (direct A/AAAA or Cloudflare Proxy 🟠), then provision
 sudo ./soviez.sh --new
 
 # 2b) If provisioning failed mid-flight on Nginx/SSL, heal and resume:
@@ -93,8 +93,8 @@ sudo ./soviez.sh --formssl
 
 | Mode | Command | Role |
 |------|---------|------|
-| **Init** | `./soviez.sh --init` (default) | Apt, Docker, Nginx, Certbot, UFW — host only |
-| **New** | `./soviez.sh --new` | Domain + DNS check + isolated ERP/Postgres stack + HTTPS |
+| **Init** | `./soviez.sh --init` (default) | Host only: apt index refresh (no upgrade), Docker, Nginx, Certbot, UFW, Fail2Ban; optional OS `[HINT]` |
+| **New** | `./soviez.sh --new` | Domain + DNS check (origin or Cloudflare Proxy) + isolated ERP/Postgres stack + HTTPS |
 | **List** | `./soviez.sh --list` | Table of tenants (index, domain, Docker status) |
 | **Backup** | `./soviez.sh --backup <tenant> <db>` | Space-checked DB + filestore archive (5 GB host buffer) |
 | **Backup list** | `./soviez.sh --backup-list` | Inventory of `/var/soviez/backups` archives |
