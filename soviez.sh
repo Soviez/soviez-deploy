@@ -9,8 +9,9 @@
 #   ./soviez.sh --list                 List tenants (index, domain, docker status)
 #   ./soviez.sh --backup <tenant> <db> Space-checked DB+filestore archive → /var/soviez/backups
 #   ./soviez.sh --backup-list          Inventory existing backup archives
-#   ./soviez.sh --stage <tenant> <db>  Clone <db> → stage DB + isolated stage.* web + Nginx
-#   ./soviez.sh --dropstage <tenant> <db>  Drop neutralized DB + stage runtime (safe shield)
+#   ./soviez.sh --stage <tenant> [db]  Clone [db|production] -> stage + isolated *_stage addons
+#   ./soviez.sh --dropstage <tenant> <db>  Drop clone + stage runtime + *_stage addons sandbox
+#   ./soviez.sh --liststage            Inventory active staging environments
 #   ./soviez.sh --reset-pass <tenant> <db> <user> <pass>  Odoo-compliant admin password reset
 #   ./soviez.sh --change-domain <tenant>   Repoint tenant DNS/Nginx/HTTPS to a new domain
 #   ./soviez.sh --monitor              Live docker stats for running soviez-* containers
@@ -154,6 +155,7 @@ FILESTORE_VOLUME="soviez_filestore"
 INSTANCE_INDEX=""
 PORT_SCAN_START="${PRIMARY_PORT_START}"
 CUSTOM_ADDONS_HOST_PATH=""
+STAGE_ADDONS_HOST_PATH=""
 TENANT_DOMAIN=""
 FORMSSL_DOMAIN=""
 # Set by provision_tenant_https / --formssl: letsencrypt | selfsigned
@@ -238,6 +240,9 @@ for arg in "$@"; do
     --dropstage)
       MODE="dropstage"
       ;;
+    --liststage)
+      MODE="liststage"
+      ;;
     --backup-list)
       MODE="backup-list"
       ;;
@@ -279,11 +284,12 @@ Usage:
   ./soviez.sh [--init]                       Bootstrap host (apt, Docker, Nginx, Certbot, UFW)
   ./soviez.sh --new                          Provision a new isolated tenant (domain + SSL + addons)
   ./soviez.sh --list                         List all tenants (domain + Docker status)
+  ./soviez.sh --liststage                    List staging environments (web, DB, port, FQDN)
   ./soviez.sh --backup <tenant> <db>         Space-checked DB + filestore backup (5 GB host buffer)
   ./soviez.sh --backup-list                  List archives under /var/soviez/backups
   ./soviez.sh --formsetup                    Resume / heal latest half-configured tenant
   ./soviez.sh --formssl [domain]             Diagnose / repair HTTPS (Let's Encrypt or self-signed)
-  ./soviez.sh --stage <tenant> <source_db>   Clone → stage DB + stage.<domain> web (dbfilter lock)
+  ./soviez.sh --stage <tenant> [source_db]   Clone → stage DB + web (default source_db=production)
   ./soviez.sh --dropstage <tenant> <db>      Drop neutralized stage DB + stage runtime (safe shield)
   ./soviez.sh --reset-pass <tenant> <db> <user> <password>
                                              Odoo-compliant password reset (hashed write)
@@ -302,8 +308,10 @@ Tenant refs:
 
 Examples:
   sudo ./soviez.sh --list
+  sudo ./soviez.sh --liststage
   sudo ./soviez.sh --backup 2 production
   sudo ./soviez.sh --backup-list
+  sudo ./soviez.sh --stage 1
   sudo ./soviez.sh --stage soviez-web-1 production
   sudo ./soviez.sh --dropstage soviez-web-1 stage
   sudo ./soviez.sh --reset-pass 1 production admin 'NewSecret!'
@@ -371,6 +379,24 @@ USAGE
       ;;
   esac
 done
+
+# ---------------------------------------------------------------------------
+# --stage CLI sugar (v0.1.3): expand bare indexes; default source DB → production
+# ---------------------------------------------------------------------------
+if [[ "${MODE}" == "stage" ]]; then
+  if [[ -n "${STAGE_TENANT_REF}" && "${STAGE_TENANT_REF}" =~ ^[0-9]+$ ]]; then
+    STAGE_TENANT_REF="soviez-web-${STAGE_TENANT_REF}"
+  fi
+  if [[ -n "${STAGE_TENANT_REF}" && -z "${STAGE_SOURCE_DB}" ]]; then
+    STAGE_SOURCE_DB="production"
+  fi
+fi
+# Same index expansion for dropstage convenience.
+if [[ "${MODE}" == "dropstage" ]]; then
+  if [[ -n "${DROPSTAGE_TENANT_REF}" && "${DROPSTAGE_TENANT_REF}" =~ ^[0-9]+$ ]]; then
+    DROPSTAGE_TENANT_REF="soviez-web-${DROPSTAGE_TENANT_REF}"
+  fi
+fi
 
 # ---------------------------------------------------------------------------
 # Self-preservation & auto-update
@@ -4618,7 +4644,7 @@ run_odoo_neutralize() {
 }
 
 # ===========================================================================
-# Isolated staging runtime (v0.1.2+) — stage.<domain> + dbfilter lock
+# Isolated staging runtime (v0.1.3+) — stage.<domain> / custom FQDN + dbfilter
 # ===========================================================================
 stage_web_container_name() {
   printf '%s-stage\n' "${WEB_CONTAINER}"
@@ -4641,10 +4667,133 @@ resolve_stage_domain() {
   printf 'stage.%s\n' "${prod_domain}"
 }
 
+# Interactive FQDN for staging Nginx (empty → stage.$TENANT_DOMAIN). stdout = FQDN only.
+prompt_stage_fqdn() {
+  local default_domain USER_CUSTOM_DOMAIN="" tenant_domain
+  tenant_domain="$(normalize_domain "${SOVIEZ_TENANT_DOMAIN:-${TENANT_DOMAIN:-}}")"
+  default_domain="$(resolve_stage_domain)" || return 1
+
+  echo "" >&2
+  if [[ -t 0 ]]; then
+    # shellcheck disable=SC2162
+    read -r -p "Enter custom FQDN for this stage (Leave empty for default stage.${tenant_domain}): " USER_CUSTOM_DOMAIN
+  else
+    ui_info "Non-interactive stdin — using default staging FQDN ${default_domain}"
+    USER_CUSTOM_DOMAIN=""
+  fi
+
+  USER_CUSTOM_DOMAIN="$(normalize_domain "${USER_CUSTOM_DOMAIN:-}")"
+  if [[ -z "${USER_CUSTOM_DOMAIN}" ]]; then
+    printf '%s\n' "${default_domain}"
+    return 0
+  fi
+
+  if [[ ! "${USER_CUSTOM_DOMAIN}" =~ ^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$ ]]; then
+    ui_error "Invalid staging FQDN: ${USER_CUSTOM_DOMAIN}"
+    return 1
+  fi
+  if [[ -n "${tenant_domain}" && "${USER_CUSTOM_DOMAIN}" == "${tenant_domain}" ]]; then
+    ui_error "Staging FQDN cannot equal the production domain (${USER_CUSTOM_DOMAIN})"
+    return 1
+  fi
+
+  ui_ok "Using custom staging FQDN: ${USER_CUSTOM_DOMAIN}"
+  printf '%s\n' "${USER_CUSTOM_DOMAIN}"
+}
+
+# Host path for sandboxed staging custom addons: ${CUSTOM_ADDONS_HOST_PATH}_stage
+stage_custom_addons_host_path() {
+  local prod="${CUSTOM_ADDONS_HOST_PATH:-${SOVIEZ_CUSTOM_ADDONS_HOST:-}}"
+  if [[ -z "${prod}" ]]; then
+    printf '\n'
+    return 0
+  fi
+  if [[ "${prod}" == *_stage ]]; then
+    printf '%s\n' "${prod}"
+    return 0
+  fi
+  printf '%s_stage\n' "${prod}"
+}
+
+# Physically clone production addons into an isolated _stage tree (never bind-share prod).
+ensure_stage_custom_addons_dir() {
+  local prod_path stage_path
+  ensure_custom_addons_dir
+  prod_path="${CUSTOM_ADDONS_HOST_PATH:-}"
+  stage_path="$(stage_custom_addons_host_path)"
+
+  if [[ -z "${prod_path}" || -z "${stage_path}" ]]; then
+    STAGE_ADDONS_HOST_PATH=""
+    return 0
+  fi
+
+  # Refuse to treat production path as the stage target.
+  if [[ "${stage_path}" == "${prod_path}" ]]; then
+    ui_error "Refusing stage addons path equal to production: ${prod_path}"
+    return 1
+  fi
+  if [[ "${stage_path}" != *_stage ]]; then
+    ui_error "Unsafe stage addons path (must end with _stage): ${stage_path}"
+    return 1
+  fi
+
+  mkdir -p "$(dirname "${stage_path}")"
+
+  if [[ ! -d "${stage_path}" ]]; then
+    ui_wait "Cloning custom addons (isolated): ${prod_path} → ${stage_path}..."
+    if [[ -d "${prod_path}" ]]; then
+      if ! cp -a "${prod_path}" "${stage_path}"; then
+        ui_error "Failed to cp -a custom addons into ${stage_path}"
+        return 1
+      fi
+    else
+      mkdir -p "${stage_path}"
+    fi
+    if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
+      chown -R "${SUDO_USER}:${SUDO_USER}" "${stage_path}" 2>/dev/null || true
+    fi
+    ui_ok "Staging custom addons sandbox ready: ${stage_path}"
+  else
+    ui_info "Reusing isolated staging addons tree: ${stage_path}"
+  fi
+
+  STAGE_ADDONS_HOST_PATH="${stage_path}"
+  SOVIEZ_STAGE_ADDONS_HOST="${stage_path}"
+  return 0
+}
+
+# Destroy the isolated _stage addons tree only (never the production addons dir).
+remove_stage_custom_addons_dir() {
+  local stage_path prod_path
+  prod_path="${CUSTOM_ADDONS_HOST_PATH:-${SOVIEZ_CUSTOM_ADDONS_HOST:-}}"
+  stage_path="${SOVIEZ_STAGE_ADDONS_HOST:-${STAGE_ADDONS_HOST_PATH:-}}"
+  if [[ -z "${stage_path}" ]]; then
+    stage_path="$(stage_custom_addons_host_path)"
+  fi
+  [[ -n "${stage_path}" ]] || return 0
+
+  if [[ -n "${prod_path}" && "${stage_path}" == "${prod_path}" ]]; then
+    ui_warn "Refusing to delete production addons path: ${stage_path}"
+    return 1
+  fi
+  if [[ "${stage_path}" != *_stage ]]; then
+    ui_warn "Refusing to delete non-_stage addons path: ${stage_path}"
+    return 1
+  fi
+  if [[ -e "${stage_path}" ]]; then
+    ui_wait "Removing isolated staging addons ${stage_path}..."
+    rm -rf "${stage_path}"
+    ui_ok "Staging addons sandbox destroyed"
+  fi
+  STAGE_ADDONS_HOST_PATH=""
+  SOVIEZ_STAGE_ADDONS_HOST=""
+  return 0
+}
+
 # Stage conf keeps list_db=False globally and pins dbfilter to the cloned DB only.
 ensure_stage_soviez_conf() {
   local dbname="$1"
-  local conf_path dir dbfilter_re
+  local conf_path dir dbfilter_re addons_line
   assert_safe_dbname "${dbname}"
   conf_path="$(stage_soviez_conf_path)"
   dir="$(dirname "${conf_path}")"
@@ -4652,14 +4801,20 @@ ensure_stage_soviez_conf() {
   mkdir -p "${dir}"
   chmod 755 "${SOVIEZ_VOLUME_ROOT}" "$(dirname "${dir}")" "${dir}" 2>/dev/null || true
 
+  addons_line="/opt/soviez-erp/addons,/opt/soviez-erp/odoo/addons"
+  if [[ -n "${STAGE_ADDONS_HOST_PATH:-${SOVIEZ_STAGE_ADDONS_HOST:-}}" ]]; then
+    addons_line="${addons_line},${CUSTOM_ADDONS_CONTAINER_PATH}"
+  fi
+
   cat > "${conf_path}" <<EOF
 [options]
-; Isolated staging runtime — managed by soviez.sh --stage (v0.1.2+)
+; Isolated staging runtime — managed by soviez.sh --stage (v0.1.3+)
 ; list_db stays False; dbfilter auto-loads ONLY the cloned stage database.
+; Custom addons bind is the isolated host *_stage tree (not production).
 workers = 0
 limit_memory_soft = 2147483648
 limit_memory_hard = 2684354560
-addons_path = /opt/soviez-erp/addons,/opt/soviez-erp/odoo/addons
+addons_path = ${addons_line}
 data_dir = /root/.local/share/Odoo
 list_db = False
 dbfilter = ${dbfilter_re}
@@ -4668,7 +4823,7 @@ EOF
   log_file "Wrote stage runtime conf ${conf_path} dbfilter=${dbfilter_re}"
 }
 
-# Tear down stage web + Nginx (does not touch Postgres / filestore).
+# Tear down stage web + Nginx + isolated addons sandbox (does not touch Postgres / filestore / prod addons).
 teardown_stage_runtime() {
   local stage_web stage_domain conf_tree
   stage_web="$(stage_web_container_name)"
@@ -4695,6 +4850,8 @@ teardown_stage_runtime() {
     rm -rf "${conf_tree}"
     log_file "Removed stage conf tree ${conf_tree}"
   fi
+
+  remove_stage_custom_addons_dir || true
 }
 
 allocate_stage_host_port() {
@@ -4727,9 +4884,9 @@ allocate_stage_host_port() {
   return 0
 }
 
-# Dedicated staging web runner — shares Postgres/filestore network, locks DB via dbfilter.
+# Dedicated staging web runner — isolated addons sandbox + dbfilter lock.
 _docker_run_stage_web_container() {
-  local stage_web stage_port stage_mac runtime_conf addons_cli dbfilter_re
+  local stage_web stage_port stage_mac runtime_conf addons_cli dbfilter_re stage_addons
   local -a volume_args=() docker_limits=()
   local run_rc=0
 
@@ -4750,9 +4907,11 @@ _docker_run_stage_web_container() {
   fi
 
   ensure_host_ledger_dir
-  ensure_custom_addons_dir
+  ensure_stage_custom_addons_dir || return 1
   ensure_stage_soviez_conf "${STAGE_DB_NAME}"
   ensure_migration_secret || return 1
+
+  stage_addons="${STAGE_ADDONS_HOST_PATH:-${SOVIEZ_STAGE_ADDONS_HOST:-}}"
 
   volume_args+=(
     -v "${FILESTORE_VOLUME}:/root/.local/share/Odoo/filestore"
@@ -4761,8 +4920,8 @@ _docker_run_stage_web_container() {
   )
 
   addons_cli="/opt/soviez-erp/addons,/opt/soviez-erp/odoo/addons"
-  if [[ -n "${CUSTOM_ADDONS_HOST_PATH}" ]]; then
-    volume_args+=(-v "${CUSTOM_ADDONS_HOST_PATH}:${CUSTOM_ADDONS_CONTAINER_PATH}")
+  if [[ -n "${stage_addons}" ]]; then
+    volume_args+=(-v "${stage_addons}:${CUSTOM_ADDONS_CONTAINER_PATH}")
     addons_cli="${addons_cli},${CUSTOM_ADDONS_CONTAINER_PATH}"
   fi
 
@@ -4831,12 +4990,21 @@ mode_stage() {
   require_cmd python3
   require_cmd nginx
 
-  local stage_domain stage_web public_ip dbfilter_re
+  local stage_domain stage_web public_ip dbfilter_re default_stage_domain
 
-  if [[ -z "${STAGE_TENANT_REF}" || -z "${STAGE_SOURCE_DB}" ]]; then
-    ui_error "Usage: sudo ./soviez.sh --stage <tenant> <source_db>"
-    ui_error "Example: sudo ./soviez.sh --stage soviez-web-1 production"
+  if [[ -z "${STAGE_TENANT_REF}" ]]; then
+    ui_error "Usage: sudo ./soviez.sh --stage <tenant|index> [source_db]"
+    ui_error "Examples: sudo ./soviez.sh --stage 1"
+    ui_error "          sudo ./soviez.sh --stage soviez-web-1 production"
     exit 1
+  fi
+
+  # Post-parse sugar may already have expanded index + defaulted production.
+  if [[ "${STAGE_TENANT_REF}" =~ ^[0-9]+$ ]]; then
+    STAGE_TENANT_REF="soviez-web-${STAGE_TENANT_REF}"
+  fi
+  if [[ -z "${STAGE_SOURCE_DB}" ]]; then
+    STAGE_SOURCE_DB="production"
   fi
 
   assert_safe_dbname "${STAGE_SOURCE_DB}"
@@ -4850,13 +5018,13 @@ mode_stage() {
   print_border_box "Soviez ERP — Staging Clone (${SOVIEZ_SCRIPT_VERSION})" \
     "Tenant: ${C_BOLD}${STAGE_TENANT_REF}${C_RESET}" \
     "Clone:  ${C_BOLD}${STAGE_SOURCE_DB}${C_RESET} → ${C_BOLD}${STAGE_DB_NAME}${C_RESET}" \
-    "Bind:   ${C_BOLD}stage.<domain>${C_RESET} + dbfilter lock (list_db=False)"
+    "Bind:   custom FQDN or stage.<domain> + isolated *_stage addons"
 
   load_tenant_topology_from_ref "${STAGE_TENANT_REF}"
 
-  stage_domain="$(resolve_stage_domain)" || exit 1
   stage_web="$(stage_web_container_name)"
   dbfilter_re="^${STAGE_DB_NAME}$"
+  default_stage_domain="$(resolve_stage_domain)" || exit 1
 
   if ! container_running "${DB_CONTAINER}"; then
     if container_exists "${DB_CONTAINER}"; then
@@ -4924,8 +5092,12 @@ mode_stage() {
     exit 1
   fi
 
-  # ---- Step E: isolated stage.<domain> web + Nginx (dbfilter lock) ----
-  echo -e "  Staging FQDN: ${C_BOLD}${stage_domain}${C_RESET}"
+  # ---- Step E: FQDN prompt → isolated web + Nginx (dbfilter lock) ----
+  stage_domain="$(prompt_stage_fqdn)" || exit 1
+  echo -e "  Staging FQDN: ${C_BOLD}${stage_domain}${C_RESET}" >&2
+  if [[ "${stage_domain}" != "${default_stage_domain}" ]]; then
+    ui_info "Custom FQDN selected (default would have been ${default_stage_domain})"
+  fi
   ensure_domain_is_unique "${stage_domain}" "${ENV_FILE}" || exit 1
 
   public_ip="$(detect_public_ip)"
@@ -4947,12 +5119,18 @@ mode_stage() {
   persist_env_key "SOVIEZ_STAGE_WEB_CONTAINER" "${stage_web}"
   persist_env_key "SOVIEZ_STAGE_CONTAINER_MAC" "${SOVIEZ_STAGE_CONTAINER_MAC}"
   persist_env_key "SOVIEZ_STAGE_DB_NAME" "${STAGE_DB_NAME}"
+  persist_env_key "SOVIEZ_STAGE_ADDONS_HOST" "${STAGE_ADDONS_HOST_PATH:-${SOVIEZ_STAGE_ADDONS_HOST:-}}"
   persist_env_key "_SOVIEZ_DBFILTER" "${dbfilter_re}"
   SOVIEZ_STAGE_DOMAIN="${stage_domain}"
 
   if ! launch_stage_web_container; then
     ui_error "Staging web container failed — DB ${STAGE_DB_NAME} exists; retry or --dropstage"
     exit 1
+  fi
+
+  # Persist after launch in case ensure_stage_custom_addons_dir finalized the path there.
+  if [[ -n "${STAGE_ADDONS_HOST_PATH:-}" ]]; then
+    persist_env_key "SOVIEZ_STAGE_ADDONS_HOST" "${STAGE_ADDONS_HOST_PATH}"
   fi
 
   if ! provision_tenant_https "${stage_domain}" "${SOVIEZ_STAGE_HOST_PORT}"; then
@@ -4966,8 +5144,10 @@ mode_stage() {
   print_green_success "Staging ready: ${STAGE_DB_NAME} → https://${stage_domain}"
   echo -e "  Production web: ${C_BOLD}${WEB_CONTAINER}${C_RESET} (list_db=False — unchanged)"
   echo -e "  Staging web:    ${C_BOLD}${stage_web}${C_RESET} → 127.0.0.1:${SOVIEZ_STAGE_HOST_PORT}"
+  echo -e "  Addons sandbox: ${C_BOLD}${STAGE_ADDONS_HOST_PATH:-${SOVIEZ_STAGE_ADDONS_HOST:-n/a}}${C_RESET}"
   echo -e "  DB lock:        ${C_CYAN}_SOVIEZ_DBFILTER=${dbfilter_re}${C_RESET} + conf dbfilter"
   echo -e "  Drop later:     ${C_BOLD}sudo ./soviez.sh --dropstage ${STAGE_TENANT_REF} ${STAGE_DB_NAME}${C_RESET}"
+  echo -e "  Inventory:      ${C_BOLD}sudo ./soviez.sh --liststage${C_RESET}"
   echo -e "  Log: ${C_DIM}${LOG_FILE}${C_RESET}"
   echo ""
 }
@@ -5056,6 +5236,7 @@ mode_dropstage() {
       persist_env_key "SOVIEZ_STAGE_HOST_PORT" ""
       persist_env_key "SOVIEZ_STAGE_WEB_CONTAINER" ""
       persist_env_key "SOVIEZ_STAGE_DB_NAME" ""
+      persist_env_key "SOVIEZ_STAGE_ADDONS_HOST" ""
       persist_env_key "_SOVIEZ_DBFILTER" ""
       persist_env_key "SOVIEZ_STAGE_SSL_MODE" ""
     fi
@@ -5601,11 +5782,227 @@ list_tenants() {
   echo ""
 }
 
+# Strip quotes/CR from a KEY=value line in an env sheet (stdout = value only).
+_env_sheet_value() {
+  local path="$1" key="$2" val=""
+  val="$(grep -E "^${key}=" "${path}" 2>/dev/null | head -n1 | cut -d= -f2- || true)"
+  val="${val//$'\r'/}"
+  val="${val%\"}"
+  val="${val#\"}"
+  val="${val%\'}"
+  val="${val#\'}"
+  printf '%s' "${val}"
+}
+
+# Resolve Nginx server_name for a stage FQDN (file or live sites-enabled scan).
+_stage_nginx_server_name() {
+  local domain="${1:-}" port="${2:-}" conf sn=""
+  if [[ -n "${domain}" ]]; then
+    conf="/etc/nginx/sites-enabled/soviez-${domain}.conf"
+    if [[ -f "${conf}" ]]; then
+      sn="$(grep -E '[[:space:]]*server_name[[:space:]]+' "${conf}" 2>/dev/null \
+        | head -n1 | sed -E 's/.*server_name[[:space:]]+([^;]+);.*/\1/' | awk '{print $1}' || true)"
+      sn="$(normalize_domain "${sn:-}")"
+      if [[ -n "${sn}" ]]; then
+        printf '%s\n' "${sn}"
+        return 0
+      fi
+    fi
+    printf '%s\n' "${domain}"
+    return 0
+  fi
+  # Fallback: match proxy_pass / 127.0.0.1:stage_port in enabled sites.
+  if [[ -n "${port}" && -d /etc/nginx/sites-enabled ]]; then
+    local f
+    for f in /etc/nginx/sites-enabled/soviez-*.conf; do
+      [[ -f "${f}" ]] || continue
+      if grep -qE "127\\.0\\.0\\.1:${port}([^0-9]|$)" "${f}" 2>/dev/null; then
+        sn="$(grep -E '[[:space:]]*server_name[[:space:]]+' "${f}" 2>/dev/null \
+          | head -n1 | sed -E 's/.*server_name[[:space:]]+([^;]+);.*/\1/' | awk '{print $1}' || true)"
+        sn="$(normalize_domain "${sn:-}")"
+        if [[ -n "${sn}" ]]; then
+          printf '%s\n' "${sn}"
+          return 0
+        fi
+      fi
+    done
+  fi
+  printf '%s\n' "—"
+}
+
+# Host publish port for a stage web container (Docker map or env sheet).
+_stage_host_port_for() {
+  local container="$1" fallback="${2:-}" mapped=""
+  if command -v docker >/dev/null 2>&1 && [[ -n "${container}" ]]; then
+    mapped="$(docker inspect -f '{{(index (index .NetworkSettings.Ports "8069/tcp") 0).HostPort}}' "${container}" 2>/dev/null || true)"
+    mapped="$(sanitize_host_port "${mapped}" 2>/dev/null || true)"
+    if [[ -n "${mapped}" ]]; then
+      printf '%s\n' "${mapped}"
+      return 0
+    fi
+  fi
+  fallback="$(sanitize_host_port "${fallback}" 2>/dev/null || true)"
+  if [[ -n "${fallback}" ]]; then
+    printf '%s\n' "${fallback}"
+    return 0
+  fi
+  printf '%s\n' "—"
+}
+
+# ===========================================================================
+# MODE: liststage — staging environment inventory (stdout table)
+# ===========================================================================
+list_stage_environments() {
+  local path base idx real skip prev name tenant_id stage_web stage_db stage_port stage_domain status_label
+  local -a env_paths=()
+  local -a seen_reals=()
+  local -a seen_webs=()
+  local -a rows_tenant=()
+  local -a rows_web=()
+  local -a rows_db=()
+  local -a rows_port=()
+  local -a rows_fqdn=()
+  local -a rows_st=()
+  local i count=0 already
+
+  _liststage_push_row() {
+    local tw="$1" tid="$2" dbn="$3" port="$4" fqdn="$5" st="$6" prevw
+    for prevw in "${seen_webs[@]:-}"; do
+      if [[ "${prevw}" == "${tw}" ]]; then
+        return 0
+      fi
+    done
+    seen_webs+=("${tw}")
+    rows_tenant+=("${tid}")
+    rows_web+=("${tw}")
+    rows_db+=("${dbn}")
+    rows_port+=("${port}")
+    rows_fqdn+=("${fqdn}")
+    rows_st+=("${st}")
+    count=$((count + 1))
+  }
+
+  # 1) Env sheets that record staging metadata
+  shopt -s nullglob
+  for path in \
+      /root/.soviez_*.env \
+      "${INSTANCE_ROOT}"/.soviez_*.env \
+      "$(pwd)"/.soviez_*.env; do
+    [[ -f "${path}" ]] || continue
+    base="$(basename "${path}")"
+    [[ "${base}" =~ ^\.soviez_([0-9]+)\.env$ ]] || continue
+
+    real="$(readlink -f "${path}" 2>/dev/null || echo "${path}")"
+    skip=0
+    for prev in "${seen_reals[@]:-}"; do
+      if [[ "${prev}" == "${real}" ]]; then
+        skip=1
+        break
+      fi
+    done
+    (( skip == 1 )) && continue
+    seen_reals+=("${real}")
+    env_paths+=("${path}")
+  done
+  shopt -u nullglob
+
+  for path in "${env_paths[@]:-}"; do
+    [[ -n "${path}" && -f "${path}" ]] || continue
+    base="$(basename "${path}")"
+    [[ "${base}" =~ ^\.soviez_([0-9]+)\.env$ ]] || continue
+    idx="${BASH_REMATCH[1]}"
+
+    stage_web="$(_env_sheet_value "${path}" "SOVIEZ_STAGE_WEB_CONTAINER")"
+    stage_domain="$(_env_sheet_value "${path}" "SOVIEZ_STAGE_DOMAIN")"
+    stage_db="$(_env_sheet_value "${path}" "SOVIEZ_STAGE_DB_NAME")"
+    stage_port="$(_env_sheet_value "${path}" "SOVIEZ_STAGE_HOST_PORT")"
+
+    if [[ -z "${stage_web}" ]]; then
+      stage_web="soviez-web-${idx}-stage"
+    fi
+    # Only list if staging was provisioned (domain/db/container evidence).
+    if [[ -z "${stage_domain}" && -z "${stage_db}" ]]; then
+      if ! command -v docker >/dev/null 2>&1 || ! docker inspect "${stage_web}" >/dev/null 2>&1; then
+        continue
+      fi
+    fi
+
+    tenant_id="$(_env_sheet_value "${path}" "SOVIEZ_WEB_CONTAINER")"
+    if [[ -z "${tenant_id}" ]]; then
+      tenant_id="soviez-web-${idx}"
+    fi
+    if [[ -z "${stage_db}" ]]; then
+      stage_db="stage"
+    fi
+    stage_port="$(_stage_host_port_for "${stage_web}" "${stage_port}")"
+    stage_domain="$(_stage_nginx_server_name "${stage_domain}" "${stage_port}")"
+    status_label="$(docker_web_status_label "${stage_web}")"
+    _liststage_push_row "${stage_web}" "${tenant_id}" "${stage_db}" "${stage_port}" "${stage_domain}" "${status_label}"
+  done
+
+  # 2) Live/orphan Docker containers matching *-stage (not already listed)
+  if command -v docker >/dev/null 2>&1; then
+    while IFS= read -r name; do
+      [[ -n "${name}" ]] || continue
+      [[ "${name}" =~ ^soviez-web-[0-9]+-stage$ ]] || continue
+      already=0
+      for prev in "${seen_webs[@]:-}"; do
+        if [[ "${prev}" == "${name}" ]]; then
+          already=1
+          break
+        fi
+      done
+      (( already == 1 )) && continue
+
+      if [[ "${name}" =~ ^soviez-web-([0-9]+)-stage$ ]]; then
+        idx="${BASH_REMATCH[1]}"
+        tenant_id="soviez-web-${idx}"
+      else
+        tenant_id="${name%-stage}"
+      fi
+      stage_port="$(_stage_host_port_for "${name}" "")"
+      stage_domain="$(_stage_nginx_server_name "" "${stage_port}")"
+      stage_db="stage"
+      status_label="$(docker_web_status_label "${name}")"
+      _liststage_push_row "${name}" "${tenant_id}" "${stage_db}" "${stage_port}" "${stage_domain}" "${status_label}"
+    done < <(docker ps -a --format '{{.Names}}' 2>/dev/null | grep -E 'soviez-web-[0-9]+-stage' || true)
+  fi
+
+  echo ""
+  echo -e "${C_BOLD}Soviez ERP — Staging Inventory (${SOVIEZ_SCRIPT_VERSION})${C_RESET}"
+  if (( count == 0 )); then
+    echo -e "${C_DIM}No staging environments found${C_RESET}"
+    echo ""
+    echo "  Scan: Docker names matching soviez-web-*-stage + tenant env SOVIEZ_STAGE_* keys"
+    echo "  Create: sudo ./soviez.sh --stage 1"
+    echo "  Drop:   sudo ./soviez.sh --dropstage <tenant> stage"
+    echo ""
+    return 0
+  fi
+  echo -e "${C_DIM}${count} staging environment(s)${C_RESET}"
+  echo ""
+  printf '+--------------------+--------------------------+----------+--------+----------------------------------+-------------------+\n'
+  printf '| %-18s | %-24s | %-8s | %-6s | %-32s | %-17s |\n' \
+    "Tenant ID" "Stage Web" "Clone DB" "Port" "Nginx server_name" "Docker Status"
+  printf '+--------------------+--------------------------+----------+--------+----------------------------------+-------------------+\n'
+  for (( i = 0; i < count; i++ )); do
+    printf '| %-18s | %-24s | %-8s | %-6s | %-32s | %-17s |\n' \
+      "${rows_tenant[$i]}" \
+      "${rows_web[$i]}" \
+      "${rows_db[$i]}" \
+      "${rows_port[$i]}" \
+      "${rows_fqdn[$i]}" \
+      "${rows_st[$i]}"
+  done
+  printf '+--------------------+--------------------------+----------+--------+----------------------------------+-------------------+\n'
+  echo ""
+}
+
 # ===========================================================================
 # Dispatch
 # ===========================================================================
 case "${MODE}" in
-  list|backup-list|monitor|logs)
+  list|liststage|backup-list|monitor|logs)
     ;;
   *)
     ensure_log_file
@@ -5621,6 +6018,9 @@ case "${MODE}" in
     ;;
   list)
     list_tenants
+    ;;
+  liststage)
+    list_stage_environments
     ;;
   backup)
     mode_backup
