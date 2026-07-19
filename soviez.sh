@@ -9,8 +9,8 @@
 #   ./soviez.sh --list                 List tenants (index, domain, docker status)
 #   ./soviez.sh --backup <tenant> <db> Space-checked DB+filestore archive → /var/soviez/backups
 #   ./soviez.sh --backup-list          Inventory existing backup archives
-#   ./soviez.sh --stage <tenant> <db>  Clone <db> → stage DB + filestore, then neutralize
-#   ./soviez.sh --dropstage <tenant> <db>  Drop neutralized DB + filestore (safe shield)
+#   ./soviez.sh --stage <tenant> <db>  Clone <db> → stage DB + isolated stage.* web + Nginx
+#   ./soviez.sh --dropstage <tenant> <db>  Drop neutralized DB + stage runtime (safe shield)
 #   ./soviez.sh --reset-pass <tenant> <db> <user> <pass>  Odoo-compliant admin password reset
 #   ./soviez.sh --change-domain <tenant>   Repoint tenant DNS/Nginx/HTTPS to a new domain
 #   ./soviez.sh --monitor              Live docker stats for running soviez-* containers
@@ -25,7 +25,7 @@
 set -euo pipefail
 
 # Installer version — bumped when soviez.sh behavior changes. Used by update_self().
-SOVIEZ_SCRIPT_VERSION="v0.1.0"
+SOVIEZ_SCRIPT_VERSION="v0.1.1"
 
 # Public installer sources (soviez-erp raw GitHub is private and 404s without auth).
 readonly SOVIEZ_SH_UPDATE_URLS=(
@@ -283,8 +283,8 @@ Usage:
   ./soviez.sh --backup-list                  List archives under /var/soviez/backups
   ./soviez.sh --formsetup                    Resume / heal latest half-configured tenant
   ./soviez.sh --formssl [domain]             Diagnose / repair HTTPS (Let's Encrypt or self-signed)
-  ./soviez.sh --stage <tenant> <source_db>   Clone source_db → stage (+ filestore), neutralize
-  ./soviez.sh --dropstage <tenant> <db>      Drop a neutralized DB + filestore (safe shield)
+  ./soviez.sh --stage <tenant> <source_db>   Clone → stage DB + stage.<domain> web (dbfilter lock)
+  ./soviez.sh --dropstage <tenant> <db>      Drop neutralized stage DB + stage runtime (safe shield)
   ./soviez.sh --reset-pass <tenant> <db> <user> <password>
                                              Odoo-compliant password reset (hashed write)
   ./soviez.sh --change-domain <tenant>       Repoint tenant to a new domain (DNS + Nginx + SSL)
@@ -2267,10 +2267,13 @@ ensure_domain_is_unique() {
     return 0
   fi
 
+  local exclude_stage_domain=""
   if [[ -n "${exclude_env}" && -e "${exclude_env}" ]]; then
     real_exclude="$(readlink -f "${exclude_env}" 2>/dev/null || printf '%s\n' "${exclude_env}")"
     exclude_domain="$(grep -E '^SOVIEZ_TENANT_DOMAIN=' "${exclude_env}" 2>/dev/null | head -n1 | cut -d= -f2- || true)"
     exclude_domain="$(normalize_domain "${exclude_domain}")"
+    exclude_stage_domain="$(grep -E '^SOVIEZ_STAGE_DOMAIN=' "${exclude_env}" 2>/dev/null | head -n1 | cut -d= -f2- || true)"
+    exclude_stage_domain="$(normalize_domain "${exclude_stage_domain}")"
   fi
 
   # --- Source of truth 1: tenant environment sheets ---
@@ -2278,6 +2281,7 @@ ensure_domain_is_unique() {
     [[ -n "${path}" && -f "${path}" ]] || continue
     real="$(readlink -f "${path}" 2>/dev/null || printf '%s\n' "${path}")"
     if [[ -n "${real_exclude}" && "${real}" == "${real_exclude}" ]]; then
+      # Same tenant sheet: production domain OR its stage.<domain> may be rebound.
       continue
     fi
     existing="$(grep -E '^SOVIEZ_TENANT_DOMAIN=' "${path}" 2>/dev/null | head -n1 | cut -d= -f2- || true)"
@@ -2287,13 +2291,21 @@ ensure_domain_is_unique() {
       log_file "Domain conflict: ${domain} already in env sheet ${path}"
       break
     fi
+    existing="$(grep -E '^SOVIEZ_STAGE_DOMAIN=' "${path}" 2>/dev/null | head -n1 | cut -d= -f2- || true)"
+    existing="$(normalize_domain "${existing}")"
+    if [[ -n "${existing}" && "${existing}" == "${domain}" ]]; then
+      conflict=1
+      log_file "Domain conflict: ${domain} already used as stage domain in ${path}"
+      break
+    fi
   done < <(collect_tenant_env_paths 2>/dev/null || true)
 
   # --- Source of truth 2: Nginx vhost files ---
   nginx_site="/etc/nginx/sites-available/soviez-${domain}.conf"
   if (( conflict == 0 )) && [[ -f "${nginx_site}" ]]; then
-    # Allow when this vhost belongs to the tenant we are rebinding (same FQDN).
-    if [[ -n "${exclude_domain}" && "${exclude_domain}" == "${domain}" ]]; then
+    # Allow when this vhost belongs to the tenant we are rebinding (prod or stage FQDN).
+    if [[ -n "${exclude_domain}" && "${exclude_domain}" == "${domain}" ]] \
+        || [[ -n "${exclude_stage_domain}" && "${exclude_stage_domain}" == "${domain}" ]]; then
       log_file "Domain ${domain} nginx vhost owned by excluded tenant — allowing"
     else
       conflict=1
@@ -4263,12 +4275,202 @@ run_odoo_neutralize() {
 }
 
 # ===========================================================================
-# MODE: stage — clone live DB → stage + filestore, then neutralize
+# Isolated staging runtime (v0.1.1+) — stage.<domain> + dbfilter lock
+# ===========================================================================
+stage_web_container_name() {
+  printf '%s-stage\n' "${WEB_CONTAINER}"
+}
+
+stage_soviez_conf_path() {
+  local stage_web
+  stage_web="$(stage_web_container_name)"
+  printf '%s/%s/conf/tenant.soviez.conf\n' "${SOVIEZ_VOLUME_ROOT}" "${stage_web}"
+}
+
+# Derive stage.FQDN from the tenant's linked production domain.
+resolve_stage_domain() {
+  local prod_domain
+  prod_domain="$(normalize_domain "${SOVIEZ_TENANT_DOMAIN:-${TENANT_DOMAIN:-}}")"
+  if [[ -z "${prod_domain}" ]]; then
+    ui_error "Tenant env sheet missing SOVIEZ_TENANT_DOMAIN — cannot build stage.<domain>"
+    return 1
+  fi
+  printf 'stage.%s\n' "${prod_domain}"
+}
+
+# Stage conf keeps list_db=False globally and pins dbfilter to the cloned DB only.
+ensure_stage_soviez_conf() {
+  local dbname="$1"
+  local conf_path dir dbfilter_re
+  assert_safe_dbname "${dbname}"
+  conf_path="$(stage_soviez_conf_path)"
+  dir="$(dirname "${conf_path}")"
+  dbfilter_re="^${dbname}$"
+  mkdir -p "${dir}"
+  chmod 755 "${SOVIEZ_VOLUME_ROOT}" "$(dirname "${dir}")" "${dir}" 2>/dev/null || true
+
+  cat > "${conf_path}" <<EOF
+[options]
+; Isolated staging runtime — managed by soviez.sh --stage (v0.1.1+)
+; list_db stays False; dbfilter auto-loads ONLY the cloned stage database.
+workers = 0
+limit_memory_soft = 2147483648
+limit_memory_hard = 2684354560
+addons_path = /opt/soviez-erp/addons,/opt/soviez-erp/odoo/addons
+data_dir = /root/.local/share/Odoo
+list_db = False
+dbfilter = ${dbfilter_re}
+EOF
+  chmod 640 "${conf_path}"
+  log_file "Wrote stage runtime conf ${conf_path} dbfilter=${dbfilter_re}"
+}
+
+# Tear down stage web + Nginx (does not touch Postgres / filestore).
+teardown_stage_runtime() {
+  local stage_web stage_domain conf_tree
+  stage_web="$(stage_web_container_name)"
+  stage_domain="$(normalize_domain "${SOVIEZ_STAGE_DOMAIN:-}")"
+  if [[ -z "${stage_domain}" ]]; then
+    stage_domain="$(resolve_stage_domain 2>/dev/null || true)"
+  fi
+
+  if container_exists "${stage_web}"; then
+    ui_wait "Removing staging web container ${stage_web}..."
+    docker rm -f "${stage_web}" >>"${LOG_FILE}" 2>&1 || true
+    ui_ok "Removed ${stage_web}"
+  fi
+
+  if [[ -n "${stage_domain}" ]]; then
+    ui_wait "Removing Nginx site for ${stage_domain}..."
+    remove_nginx_site_for_domain "${stage_domain}"
+    if command -v nginx >/dev/null 2>&1; then
+      nginx -t >>"${LOG_FILE}" 2>&1 && systemctl reload nginx >>"${LOG_FILE}" 2>&1 || true
+    fi
+    ui_ok "Nginx stage vhost cleared"
+  fi
+
+  conf_tree="${SOVIEZ_VOLUME_ROOT}/${stage_web}"
+  if [[ -d "${conf_tree}" ]]; then
+    rm -rf "${conf_tree}"
+    log_file "Removed stage conf tree ${conf_tree}"
+  fi
+}
+
+allocate_stage_host_port() {
+  local stage_web existing port_map
+  stage_web="$(stage_web_container_name)"
+  existing="${SOVIEZ_STAGE_HOST_PORT:-}"
+
+  if [[ -n "${existing}" ]]; then
+    if ! is_port_busy "${existing}"; then
+      printf '%s\n' "${existing}"
+      return 0
+    fi
+    if container_exists "${stage_web}"; then
+      port_map="$(docker port "${stage_web}" 8069 2>/dev/null | head -n1 || true)"
+      if [[ "${port_map}" == *":${existing}" ]]; then
+        printf '%s\n' "${existing}"
+        return 0
+      fi
+    fi
+    ui_warn "Stored stage port ${existing} is busy — allocating a free port"
+  fi
+  find_free_host_port "${MULTI_PORT_START}"
+}
+
+# Dedicated staging web runner — shares Postgres/filestore network, locks DB via dbfilter.
+_docker_run_stage_web_container() {
+  local stage_web stage_port stage_mac runtime_conf addons_cli dbfilter_re
+  local -a volume_args=() docker_limits=()
+  local run_rc=0
+
+  stage_web="$(stage_web_container_name)"
+  stage_port="${SOVIEZ_STAGE_HOST_PORT}"
+  stage_mac="${SOVIEZ_STAGE_CONTAINER_MAC}"
+  dbfilter_re="^${STAGE_DB_NAME}$"
+  runtime_conf="$(stage_soviez_conf_path)"
+
+  ensure_host_ledger_dir
+  ensure_custom_addons_dir
+  ensure_stage_soviez_conf "${STAGE_DB_NAME}"
+  ensure_migration_secret || return 1
+
+  volume_args+=(
+    -v "${FILESTORE_VOLUME}:/root/.local/share/Odoo/filestore"
+    -v "${HOST_SOVIEZ_DIR}:/root/.soviez"
+    -v "${runtime_conf}:/opt/soviez-erp/tenant.soviez.conf:ro"
+  )
+
+  addons_cli="/opt/soviez-erp/addons,/opt/soviez-erp/odoo/addons"
+  if [[ -n "${CUSTOM_ADDONS_HOST_PATH}" ]]; then
+    volume_args+=(-v "${CUSTOM_ADDONS_HOST_PATH}:${CUSTOM_ADDONS_CONTAINER_PATH}")
+    addons_cli="${addons_cli},${CUSTOM_ADDONS_CONTAINER_PATH}"
+  fi
+
+  # Staging runners stay lean — ignore production cgroup caps if unset.
+  if [[ -n "${SOVIEZ_DOCKER_CPUS:-}" ]]; then
+    docker_limits+=(--cpus="${SOVIEZ_DOCKER_CPUS}")
+  fi
+  if [[ -n "${SOVIEZ_DOCKER_MEM_MB:-}" ]]; then
+    docker_limits+=(--memory="${SOVIEZ_DOCKER_MEM_MB}m" --memory-swap="${SOVIEZ_DOCKER_MEM_MB}m")
+  fi
+
+  set +e
+  docker run -d \
+    --name "${stage_web}" \
+    --restart unless-stopped \
+    --network "${NETWORK_NAME}" \
+    --mac-address "${stage_mac}" \
+    -p "${stage_port}:8069" \
+    -e POSTGRES_USER=soviez \
+    -e POSTGRES_PASSWORD="${SOVIEZ_DB_PASSWORD}" \
+    -e PASSWORD="${SOVIEZ_DB_PASSWORD}" \
+    -e SOVIEZ_MIGRATION_SECRET="${SOVIEZ_MIGRATION_SECRET}" \
+    -e "_SOVIEZ_DBFILTER=${dbfilter_re}" \
+    "${docker_limits[@]}" \
+    "${volume_args[@]}" \
+    "${APP_IMAGE}" \
+    python3 soviez-bin -c /opt/soviez-erp/tenant.soviez.conf \
+      --addons-path="${addons_cli}" \
+      --db_host="${DB_CONTAINER}" \
+      --db_port=5432 \
+      --db_user=soviez \
+      --db_password="${SOVIEZ_DB_PASSWORD}" \
+      --data-dir=/root/.local/share/Odoo \
+      --admin-passwd="${SOVIEZ_ADMIN_PASSWORD}" \
+      --db-filter="${dbfilter_re}" >>"${LOG_FILE}" 2>&1
+  run_rc=$?
+  set -e
+
+  if (( run_rc != 0 )); then
+    ui_error "Failed to start staging web ${stage_web} (docker run exit ${run_rc}) — see ${LOG_FILE}"
+    return "${run_rc}"
+  fi
+  return 0
+}
+
+launch_stage_web_container() {
+  local stage_web
+  stage_web="$(stage_web_container_name)"
+  if container_exists "${stage_web}"; then
+    docker rm -f "${stage_web}" >>"${LOG_FILE}" 2>&1 || true
+  fi
+  ui_wait "Creating isolated staging web (${stage_web}) on host port ${SOVIEZ_STAGE_HOST_PORT}..."
+  _docker_run_stage_web_container || return 1
+  ui_ok "Staging web created (${stage_web})"
+}
+
+# ===========================================================================
+# MODE: stage — clone live DB → stage + filestore, neutralize, bind stage.<domain>
 # ===========================================================================
 mode_stage() {
   ensure_log_file
+  require_root --stage
   require_cmd docker
   require_cmd python3
+  require_cmd nginx
+
+  local stage_domain stage_web public_ip dbfilter_re
 
   if [[ -z "${STAGE_TENANT_REF}" || -z "${STAGE_SOURCE_DB}" ]]; then
     ui_error "Usage: sudo ./soviez.sh --stage <tenant> <source_db>"
@@ -4284,12 +4486,16 @@ mode_stage() {
     exit 1
   fi
 
-  print_border_box "Soviez ERP — Staging Clone" \
+  print_border_box "Soviez ERP — Staging Clone (${SOVIEZ_SCRIPT_VERSION})" \
     "Tenant: ${C_BOLD}${STAGE_TENANT_REF}${C_RESET}" \
     "Clone:  ${C_BOLD}${STAGE_SOURCE_DB}${C_RESET} → ${C_BOLD}${STAGE_DB_NAME}${C_RESET}" \
-    "Then neutralize staging for safe testing."
+    "Bind:   ${C_BOLD}stage.<domain>${C_RESET} + dbfilter lock (list_db=False)"
 
   load_tenant_topology_from_ref "${STAGE_TENANT_REF}"
+
+  stage_domain="$(resolve_stage_domain)" || exit 1
+  stage_web="$(stage_web_container_name)"
+  dbfilter_re="^${STAGE_DB_NAME}$"
 
   if ! container_running "${DB_CONTAINER}"; then
     if container_exists "${DB_CONTAINER}"; then
@@ -4311,6 +4517,11 @@ mode_stage() {
   ui_wait "Terminating active connections to ${STAGE_SOURCE_DB}..."
   pg_terminate_db_connections "${STAGE_SOURCE_DB}"
   ui_ok "Connections terminated on ${STAGE_SOURCE_DB}"
+
+  # Stop prior stage runtime before DROP (releases sessions on stage DB).
+  if container_exists "${stage_web}" || [[ -n "${SOVIEZ_STAGE_DOMAIN:-}" ]]; then
+    teardown_stage_runtime
+  fi
 
   # If stage already exists, drop it cleanly first (idempotent re-stage)
   if pg_database_exists "${STAGE_DB_NAME}"; then
@@ -4352,10 +4563,45 @@ mode_stage() {
     exit 1
   fi
 
-  print_green_success "Staging ready: ${STAGE_DB_NAME} (from ${STAGE_SOURCE_DB})"
-  echo -e "  Tenant web: ${C_BOLD}${WEB_CONTAINER}${C_RESET}"
-  echo -e "  Select database ${C_CYAN}${STAGE_DB_NAME}${C_RESET} at login (or via dbfilter)"
-  echo -e "  Drop later: ${C_BOLD}sudo ./soviez.sh --dropstage ${STAGE_TENANT_REF} ${STAGE_DB_NAME}${C_RESET}"
+  # ---- Step E: isolated stage.<domain> web + Nginx (dbfilter lock) ----
+  echo -e "  Staging FQDN: ${C_BOLD}${stage_domain}${C_RESET}"
+  ensure_domain_is_unique "${stage_domain}" "${ENV_FILE}" || exit 1
+
+  public_ip="$(detect_public_ip)"
+  PUBLIC_IP="${public_ip}"
+  dns_validation_loop "${public_ip}" "${stage_domain}"
+
+  SOVIEZ_STAGE_HOST_PORT="$(allocate_stage_host_port)"
+  if [[ -z "${SOVIEZ_STAGE_CONTAINER_MAC:-}" ]]; then
+    SOVIEZ_STAGE_CONTAINER_MAC="$(generate_mac)"
+  fi
+
+  persist_env_key "SOVIEZ_STAGE_DOMAIN" "${stage_domain}"
+  persist_env_key "SOVIEZ_STAGE_HOST_PORT" "${SOVIEZ_STAGE_HOST_PORT}"
+  persist_env_key "SOVIEZ_STAGE_WEB_CONTAINER" "${stage_web}"
+  persist_env_key "SOVIEZ_STAGE_CONTAINER_MAC" "${SOVIEZ_STAGE_CONTAINER_MAC}"
+  persist_env_key "SOVIEZ_STAGE_DB_NAME" "${STAGE_DB_NAME}"
+  persist_env_key "_SOVIEZ_DBFILTER" "${dbfilter_re}"
+  SOVIEZ_STAGE_DOMAIN="${stage_domain}"
+
+  if ! launch_stage_web_container; then
+    ui_error "Staging web container failed — DB ${STAGE_DB_NAME} exists; retry or --dropstage"
+    exit 1
+  fi
+
+  if ! provision_tenant_https "${stage_domain}" "${SOVIEZ_STAGE_HOST_PORT}"; then
+    ui_error "HTTPS provision failed for ${stage_domain} — see ${LOG_FILE}"
+    exit 1
+  fi
+  persist_env_key "SOVIEZ_STAGE_SSL_MODE" "${SSL_STATUS:-selfsigned}"
+  verify_and_heal_tenant_https "${stage_domain}" "${SOVIEZ_STAGE_HOST_PORT}" || true
+  print_ssl_status_report "${stage_domain}"
+
+  print_green_success "Staging ready: ${STAGE_DB_NAME} → https://${stage_domain}"
+  echo -e "  Production web: ${C_BOLD}${WEB_CONTAINER}${C_RESET} (list_db=False — unchanged)"
+  echo -e "  Staging web:    ${C_BOLD}${stage_web}${C_RESET} → 127.0.0.1:${SOVIEZ_STAGE_HOST_PORT}"
+  echo -e "  DB lock:        ${C_CYAN}_SOVIEZ_DBFILTER=${dbfilter_re}${C_RESET} + conf dbfilter"
+  echo -e "  Drop later:     ${C_BOLD}sudo ./soviez.sh --dropstage ${STAGE_TENANT_REF} ${STAGE_DB_NAME}${C_RESET}"
   echo -e "  Log: ${C_DIM}${LOG_FILE}${C_RESET}"
   echo ""
 }
@@ -4365,8 +4611,9 @@ mode_stage() {
 # ===========================================================================
 mode_dropstage() {
   ensure_log_file
+  require_root --dropstage
   require_cmd docker
-  local neut_val
+  local neut_val stage_db_expected
 
   if [[ -z "${DROPSTAGE_TENANT_REF}" || -z "${DROPSTAGE_DB}" ]]; then
     ui_error "Usage: sudo ./soviez.sh --dropstage <tenant> <db_to_drop>"
@@ -4382,9 +4629,9 @@ mode_dropstage() {
     exit 1
   fi
 
-  print_border_box "Soviez ERP — Drop Staging Database" \
+  print_border_box "Soviez ERP — Drop Staging Database (${SOVIEZ_SCRIPT_VERSION})" \
     "Tenant: ${C_BOLD}${DROPSTAGE_TENANT_REF}${C_RESET}" \
-    "Drop:   ${C_BOLD}${DROPSTAGE_DB}${C_RESET} (Postgres + filestore)"
+    "Drop:   ${C_BOLD}${DROPSTAGE_DB}${C_RESET} (Postgres + filestore + stage runtime)"
 
   load_tenant_topology_from_ref "${DROPSTAGE_TENANT_REF}"
 
@@ -4410,6 +4657,12 @@ mode_dropstage() {
     ui_ok "Safe Shield: database.is_neutralized=True on ${DROPSTAGE_DB}"
   fi
 
+  # Stop stage web first so Postgres can DROP without open sessions.
+  stage_db_expected="${SOVIEZ_STAGE_DB_NAME:-${STAGE_DB_NAME}}"
+  if [[ "${DROPSTAGE_DB}" == "${stage_db_expected}" || "${DROPSTAGE_DB}" == "${STAGE_DB_NAME}" ]]; then
+    teardown_stage_runtime
+  fi
+
   # ---- Step A: DROP DATABASE ----
   if pg_database_exists "${DROPSTAGE_DB}"; then
     ui_wait "Terminating connections to ${DROPSTAGE_DB}..."
@@ -4429,6 +4682,18 @@ mode_dropstage() {
 
   # ---- Step B: clean filestore ----
   remove_filestore_dir "${DROPSTAGE_DB}"
+
+  # ---- Step C: clear stage keys when dropping the known stage DB ----
+  if [[ "${DROPSTAGE_DB}" == "${stage_db_expected}" || "${DROPSTAGE_DB}" == "${STAGE_DB_NAME}" ]]; then
+    if [[ -n "${ENV_FILE:-}" && -f "${ENV_FILE}" ]]; then
+      persist_env_key "SOVIEZ_STAGE_DOMAIN" ""
+      persist_env_key "SOVIEZ_STAGE_HOST_PORT" ""
+      persist_env_key "SOVIEZ_STAGE_WEB_CONTAINER" ""
+      persist_env_key "SOVIEZ_STAGE_DB_NAME" ""
+      persist_env_key "_SOVIEZ_DBFILTER" ""
+      persist_env_key "SOVIEZ_STAGE_SSL_MODE" ""
+    fi
+  fi
 
   print_green_success "Staging cleanup complete: ${DROPSTAGE_DB}"
   echo -e "  Log: ${C_DIM}${LOG_FILE}${C_RESET}"
