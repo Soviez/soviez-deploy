@@ -1,10 +1,10 @@
-# Soviez ERP (v18.0.1.01.0)
+# Soviez ERP (v18.0.1.01.1)
 
 **A hardened, high-performance, corporate-sovereign Enterprise Resource Planning platform.**
 
 Soviez ERP is a specialized, production-ready **sovereign enterprise resource planning platform**, engineered for total data privacy, infrastructure independence, and zero vendor lock-in. Deploy it on your metal, in your VPC, or on any Docker-capable host — you retain full control of the runtime, the database, and the data plane.
 
-[![Version](https://img.shields.io/badge/version-18.0.1.01.0-0D9488.svg)](https://hub.docker.com/r/soviez/soviez-erp)
+[![Version](https://img.shields.io/badge/version-18.0.1.01.1-0D9488.svg)](https://hub.docker.com/r/soviez/soviez-erp)
 [![Docker](https://img.shields.io/badge/docker-soviez%2Fsoviez--erp-2496ED.svg)](https://hub.docker.com/r/soviez/soviez-erp)
 [![License](https://img.shields.io/badge/license-LGPL--3-111827.svg)](https://soviez.com)
 
