@@ -1,12 +1,31 @@
-# Soviez ERP (v18.0.1.01.1)
+# Soviez ERP (v18.0.1.01.3)
 
 **A hardened, high-performance, corporate-sovereign Enterprise Resource Planning platform.**
 
 Soviez ERP is a specialized, production-ready **sovereign enterprise resource planning platform**, engineered for total data privacy, infrastructure independence, and zero vendor lock-in. Deploy it on your metal, in your VPC, or on any Docker-capable host — you retain full control of the runtime, the database, and the data plane.
 
-[![Version](https://img.shields.io/badge/version-18.0.1.01.1-0D9488.svg)](https://hub.docker.com/r/soviez/soviez-erp)
+[![Version](https://img.shields.io/badge/version-18.0.1.01.3-0D9488.svg)](https://hub.docker.com/r/soviez/soviez-erp)
 [![Docker](https://img.shields.io/badge/docker-soviez%2Fsoviez--erp-2496ED.svg)](https://hub.docker.com/r/soviez/soviez-erp)
 [![License](https://img.shields.io/badge/license-LGPL--3-111827.svg)](https://soviez.com)
+
+## Release identity
+
+| Field | Value |
+|-------|--------|
+| **Product release** | `18.0.1.01.3` |
+| **Odoo compatibility** | `18.0` |
+| **Published architecture** | `linux/amd64` |
+| **Healthcheck** | Image HEALTHCHECK verifies `wkhtmltopdf` and local HTTP `/web/login` |
+| **Database** | External PostgreSQL **16** (`postgres:16`) |
+| **Volumes** | Persist PostgreSQL data and Odoo filestore across upgrades |
+| **Recommended pin** | `soviez/soviez-erp:18.0.1.01.3` / `v18.0.1.01.3` or an immutable digest — not mutable `latest` alone |
+
+```bash
+docker pull soviez/soviez-erp:18.0.1.01.3
+docker pull soviez/soviez-erp:v18.0.1.01.3
+```
+
+**Website modules:** Website cloud-service certification remains a separate workstream and is not claimed complete by this release.
 
 ---
 
