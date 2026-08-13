@@ -1,0 +1,3 @@
+# shellcheck shell=bash
+
+SOVIEZ_MIG_OP_SOURCE_CREDENTIALS_STATUS=migration_source_credentials_status

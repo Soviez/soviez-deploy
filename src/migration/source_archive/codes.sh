@@ -1,0 +1,6 @@
+# shellcheck shell=bash
+# Source archive codes — shared Phase 22 set in stabilization/codes.sh.
+
+SOVIEZ_MIG_OP_SOURCE_ARCHIVE_STATUS=migration_source_archive_status
+SOVIEZ_MIG_OP_SOURCE_ARCHIVE_RETRY=migration_source_archive_retry
+SOVIEZ_MIG_OP_SOURCE_ARCHIVE_RECOVER=migration_source_archive_recover

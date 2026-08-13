@@ -1,0 +1,12 @@
+# Gitleaks config for soviez-sh Phase 24 (used when gitleaks is installed).
+title = "soviez-sh phase24"
+
+[extend]
+useDefault = true
+
+# Exact path allowlist — synthetic fixtures only (no wildcards for production trees).
+[[allowlist.paths]]
+path = '''tests/fixtures/secrets/.*'''
+
+[[allowlist.paths]]
+path = '''tests/security/fixtures/secrets/.*'''
