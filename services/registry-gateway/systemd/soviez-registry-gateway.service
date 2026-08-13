@@ -1,0 +1,24 @@
+[Unit]
+Description=Soviez Registry Gateway (OCI pull proxy)
+Documentation=file:///opt/soviez-registry-gateway/docs/OPERATIONS.md
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/soviez-registry-gateway
+EnvironmentFile=-/etc/soviez-registry-gateway/gateway.env
+Environment=COMPOSE_PROJECT_NAME=soviez-registry-gateway
+
+# Prefer docker compose plugin; fall back documented in install.sh
+ExecStart=/usr/bin/docker compose -f /opt/soviez-registry-gateway/compose.yml up -d --remove-orphans
+ExecStop=/usr/bin/docker compose -f /opt/soviez-registry-gateway/compose.yml stop
+ExecReload=/usr/bin/docker compose -f /opt/soviez-registry-gateway/compose.yml up -d --remove-orphans
+
+TimeoutStartSec=300
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target
