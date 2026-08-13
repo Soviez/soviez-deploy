@@ -141,7 +141,7 @@ readonly RESOURCE_UTIL_WARN_PCT=80
 readonly RESOURCE_SYSTEM_REQUIREMENTS_URL="https://www.soviez.com/docs/system-requirements#size-production-server"
 readonly DEFAULT_APP_DB_NAME="production"
 readonly DEFAULT_APP_LOGIN="admin"
-readonly APP_PASSWORD_LEN=12
+readonly APP_PASSWORD_LEN=16
 readonly DOCKER_DAEMON_JSON="/etc/docker/daemon.json"
 readonly DOCKER_PRUNE_CRON="/etc/cron.weekly/soviez-docker-prune"
 readonly FAIL2BAN_JAIL_LOCAL="/etc/fail2ban/jail.local"
@@ -196,7 +196,8 @@ ALLOC_RAM_MB=""
 ALLOC_CORES=""
 AUTO_TUNE_ON_NEW=0
 readonly STAGE_DB_NAME="stage"
-readonly DB_APP_USER="soviez"
+readonly DB_APP_USER="soviez_app"
+readonly DB_ADMIN_USER="soviez_admin"
 
 # ---------------------------------------------------------------------------
 # Colors / UI
@@ -548,9 +549,9 @@ require_cmd() {
 # Self-healing architecture (v0.1.2) — detect, troubleshoot, fix, resume
 # ===========================================================================
 
-# True when an apt/dpkg lock file is held or a package manager PID is live.
+# True when an apt/dpkg lock is held by a live process (never treat orphan files as kill targets).
 _apt_lock_held() {
-  local f pid
+  local f pids
   for f in \
       /var/lib/dpkg/lock-frontend \
       /var/lib/dpkg/lock \
@@ -576,9 +577,71 @@ _apt_lock_held() {
   return 1
 }
 
-# Clear stuck apt/dpkg locks so package installs can resume.
+_apt_lock_owners_report() {
+  local f pids pid cmd seen=""
+  for f in \
+      /var/lib/dpkg/lock-frontend \
+      /var/lib/dpkg/lock \
+      /var/lib/apt/lists/lock \
+      /var/cache/apt/archives/lock; do
+    [[ -e "${f}" ]] || continue
+    pids=""
+    if command -v fuser >/dev/null 2>&1; then
+      pids="$(fuser "${f}" 2>/dev/null | tr ' ' '\n' | grep -E '^[0-9]+$' || true)"
+    elif command -v lsof >/dev/null 2>&1; then
+      pids="$(lsof -t "${f}" 2>/dev/null || true)"
+    fi
+    for pid in ${pids}; do
+      case " ${seen} " in *" ${pid} "*) continue ;; esac
+      seen="${seen} ${pid}"
+      cmd="$(ps -p "${pid}" -o args= 2>/dev/null | head -c 200 || echo unknown)"
+      printf 'pid=%s cmd=%s\n' "${pid}" "${cmd}"
+    done
+  done
+  local name
+  for name in apt apt-get dpkg; do
+    while IFS= read -r pid; do
+      [[ -n "${pid}" ]] || continue
+      case " ${seen} " in *" ${pid} "*) continue ;; esac
+      seen="${seen} ${pid}"
+      cmd="$(ps -p "${pid}" -o args= 2>/dev/null | head -c 200 || echo "${name}")"
+      printf 'pid=%s cmd=%s\n' "${pid}" "${cmd}"
+    done < <(pgrep -x "${name}" 2>/dev/null || true)
+  done
+  while IFS= read -r pid; do
+    [[ -n "${pid}" ]] || continue
+    case " ${seen} " in *" ${pid} "*) continue ;; esac
+    seen="${seen} ${pid}"
+    cmd="$(ps -p "${pid}" -o args= 2>/dev/null | head -c 200 || echo unattended-upgrade)"
+    printf 'pid=%s cmd=%s\n' "${pid}" "${cmd}"
+  done < <(pgrep -f 'unattended-upgrade' 2>/dev/null || true)
+}
+
+# S5 corr1: wait for apt/dpkg locks — NEVER kill package managers or rm lock files.
+# Prefer canonical soviez-sh wait when available; otherwise identical local policy.
+# Name heal_apt_locks retained for call-site compatibility; behavior is wait-or-fail.
 heal_apt_locks() {
-  if [[ "${EUID}" -ne 0 ]]; then
+  local max="${SOVIEZ_APT_LOCK_TIMEOUT:-120}"
+  [[ "${max}" =~ ^[0-9]+$ ]] || max=120
+
+  # Bridge to canonical modular handler when sourced.
+  if declare -F soviez_s5_apt_wait_for_lock >/dev/null 2>&1; then
+    local st
+    st="$(soviez_s5_apt_wait_for_lock "${max}")" || {
+      ui_error "PKG_LOCK_TIMEOUT: package lock persisted after ${max}s — see log. No processes were killed."
+      log_file "ERROR heal_apt_locks: PKG_LOCK_TIMEOUT after ${max}s (safe wait; no kill)"
+      return 1
+    }
+    case "${st}" in
+      PKG_LOCK_RELEASED|PKG_STATE_INCONSISTENT|READY) return 0 ;;
+      *)
+        [[ "${st}" == PKG_LOCK_TIMEOUT ]] && return 1
+        return 0
+        ;;
+    esac
+  fi
+
+  if [[ "${EUID}" -ne 0 ]] && [[ "${SOVIEZ_TEST_MODE:-0}" != "1" ]]; then
     return 0
   fi
   if ! command -v apt-get >/dev/null 2>&1 && ! command -v dpkg >/dev/null 2>&1; then
@@ -589,29 +652,34 @@ heal_apt_locks() {
     return 0
   fi
 
-  ui_warn "APT/DPKG lock detected — waiting 5s for background upgrades to finish..."
-  sleep 5
-  if ! _apt_lock_held; then
-    ui_ok "APT locks cleared after brief wait"
-    return 0
+  ui_warn "APT/DPKG lock detected — waiting up to ${max}s (will NOT kill package managers)..."
+  log_file "WARN heal_apt_locks: PKG_LOCK_WAITING (safe wait; never kill)"
+  local owners
+  owners="$(_apt_lock_owners_report || true)"
+  if [[ -n "${owners}" ]]; then
+    while IFS= read -r line; do
+      [[ -n "${line}" ]] || continue
+      log_file "WARN heal_apt_locks: PKG_LOCK_OWNER ${line}"
+      ui_warn "Lock owner: ${line}"
+    done <<< "${owners}"
+  else
+    log_file "WARN heal_apt_locks: PKG_LOCK_OWNER_UNKNOWN"
   fi
 
-  ui_warn "APT still locked — forcefully clearing package-manager holders..."
-  log_file "WARN heal_apt_locks: killing apt/apt-get/dpkg and removing lock files"
-  killall -9 apt apt-get dpkg unattended-upgrade 2>/dev/null || true
-  sleep 1
-  rm -f \
-    /var/lib/dpkg/lock-frontend \
-    /var/lib/dpkg/lock \
-    /var/lib/apt/lists/lock \
-    /var/cache/apt/archives/lock \
-    /var/lib/dpkg/lock-frontend.lock \
-    2>/dev/null || true
+  local i=0
+  while (( i < max )); do
+    if ! _apt_lock_held; then
+      ui_ok "APT locks released after ${i}s (PKG_LOCK_RELEASED)"
+      log_file "OK heal_apt_locks: PKG_LOCK_RELEASED after ${i}s"
+      return 0
+    fi
+    sleep 1
+    i=$((i + 1))
+  done
 
-  export DEBIAN_FRONTEND=noninteractive
-  dpkg --configure -a >>"${LOG_FILE}" 2>&1 || true
-  ui_ok "APT/DPKG lock healer finished — resuming package operations"
-  return 0
+  ui_error "PKG_LOCK_TIMEOUT after ${max}s — operation aborted safely. Do NOT kill -9 apt/dpkg/unattended-upgrades."
+  log_file "ERROR heal_apt_locks: PKG_LOCK_TIMEOUT after ${max}s (no kill, no lock delete)"
+  return 1
 }
 
 # Non-blocking docker CLI probe; restart the daemon if hung/frozen.
@@ -824,7 +892,7 @@ wait_for_db_readiness() {
 
   ui_wait "Waiting for PostgreSQL to accept connections (up to ${timeout_s}s)..."
   for i in $(seq 1 "${timeout_s}"); do
-    if docker exec "${DB_CONTAINER}" pg_isready -U soviez -d postgres >/dev/null 2>&1; then
+    if docker exec "${DB_CONTAINER}" pg_isready -U "${DB_ADMIN_USER:-soviez_admin}" -d postgres >/dev/null 2>&1; then
       ui_ok "PostgreSQL accepting connections (${DB_CONTAINER})"
       return 0
     fi
@@ -849,9 +917,9 @@ show_progress() {
   ui_wait "${message}"
   log_file "EXEC  ${cmd[*]}"
 
-  # Self-heal apt locks before any package-manager invocation (v0.1.2).
+  # Wait for apt locks before package-manager invocation (S5 corr1 — never kill).
   if [[ "${cmd[*]}" == *apt-get* ]] || [[ "${cmd[*]}" == *apt\ * ]]; then
-    heal_apt_locks
+    heal_apt_locks || return 1
   fi
 
   # Run in a subshell so shell functions work; keep spinner on TTY.
@@ -1486,6 +1554,197 @@ wait_for_postgres() {
   wait_for_db_readiness 30
 }
 
+# Security Gate S1 — admin vs app Postgres exec helpers (never log passwords).
+pg_exec_admin() {
+  local database="${1:-postgres}"
+  shift || true
+  docker exec -e PGPASSWORD="${SOVIEZ_PG_ADMIN_PASSWORD}" "${DB_CONTAINER}" \
+    psql -v ON_ERROR_STOP=1 -U "${DB_ADMIN_USER:-soviez_admin}" -d "${database}" "$@"
+}
+
+pg_exec_app() {
+  local database="${1:-postgres}"
+  shift || true
+  docker exec -e PGPASSWORD="${SOVIEZ_DB_PASSWORD}" "${DB_CONTAINER}" \
+    psql -v ON_ERROR_STOP=1 -U "${DB_APP_USER:-soviez_app}" -d "${database}" "$@"
+}
+
+soviez_password_is_weak_erp() {
+  local password="$1"
+  local lower
+  lower="$(printf '%s' "${password}" | tr '[:upper:]' '[:lower:]')"
+  case "${lower}" in
+    admin|admin123|password|odoo|root|123456|12345678|qwerty|changeme) return 0 ;;
+  esac
+  return 1
+}
+
+soviez_password_assert_not_weak_erp() {
+  local password="$1" context="${2:-credential}"
+  if soviez_password_is_weak_erp "${password}"; then
+    ui_error "Weak default credential refused (${context})"
+    return 1
+  fi
+  return 0
+}
+
+# Idempotent least-privilege app role (mirrors soviez-sh platform SQL).
+provision_pg_app_role_least_privilege() {
+  local admin_user="${DB_ADMIN_USER:-soviez_admin}"
+  local app_user="${DB_APP_USER:-soviez_app}"
+  local admin_pass="${SOVIEZ_PG_ADMIN_PASSWORD:-}"
+  local app_pass="${SOVIEZ_DB_PASSWORD:-}"
+
+  [[ -n "${admin_pass}" ]] || { ui_error "SOVIEZ_PG_ADMIN_PASSWORD unset — cannot provision app role"; return 1; }
+  [[ -n "${app_pass}" ]] || { ui_error "SOVIEZ_DB_PASSWORD unset — cannot provision app role"; return 1; }
+  soviez_password_assert_not_weak_erp "${app_pass}" "pg_app_role" || return 1
+
+  local quser qpass
+  quser="$(printf '%s' "${app_user}" | sed "s/'/''/g")"
+  qpass="$(printf '%s' "${app_pass}" | sed "s/'/''/g")"
+
+  docker exec -e PGPASSWORD="${admin_pass}" "${DB_CONTAINER}" \
+    psql -v ON_ERROR_STOP=1 -U "${admin_user}" -d postgres -c \
+    "DO \$\$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${quser}') THEN
+    CREATE ROLE \"${app_user}\" LOGIN PASSWORD '${qpass}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+  ELSE
+    ALTER ROLE \"${app_user}\" WITH LOGIN PASSWORD '${qpass}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+  END IF;
+END
+\$\$;" >>"${LOG_FILE}" 2>&1 || return 1
+
+  local role
+  for role in pg_execute_server_program pg_read_server_files pg_write_server_files; do
+    docker exec -e PGPASSWORD="${admin_pass}" "${DB_CONTAINER}" \
+      psql -v ON_ERROR_STOP=0 -U "${admin_user}" -d postgres \
+      -c "REVOKE ${role} FROM \"${app_user}\";" >>"${LOG_FILE}" 2>&1 || true
+  done
+
+  local attrs
+  attrs="$(docker exec -e PGPASSWORD="${admin_pass}" "${DB_CONTAINER}" \
+    psql -U "${admin_user}" -d postgres -tAc \
+    "SELECT rolsuper||','||rolcreaterole||','||rolcreatedb||','||rolreplication||','||rolbypassrls FROM pg_roles WHERE rolname='${quser}'" \
+    | tr -d '[:space:]')"
+  case "${attrs}" in
+    f,f,f,f,f|false,false,false,false,false) ;;
+    *)
+      ui_error "App role privilege assertion failed (got ${attrs})"
+      return 1
+      ;;
+  esac
+  log_file "provision_pg_app_role_least_privilege: ${app_user} attrs=${attrs}"
+  return 0
+}
+
+# Fail-closed S1 containment check for ERP monolith (no secrets printed).
+security_validate_critical_containment_erp() {
+  local bad=0
+  local web="${WEB_CONTAINER:-}"
+  local db="${DB_CONTAINER:-}"
+  local admin_user="${DB_ADMIN_USER:-soviez_admin}"
+  local app_user="${DB_APP_USER:-soviez_app}"
+  local admin_pass="${SOVIEZ_PG_ADMIN_PASSWORD:-}"
+
+  if [[ -n "${web}" ]] && docker inspect "${web}" >/dev/null 2>&1; then
+    local ports
+    ports="$(docker inspect -f '{{json .NetworkSettings.Ports}}' "${web}" 2>/dev/null || echo UNKNOWN)"
+    if [[ "${ports}" == "UNKNOWN" || -z "${ports}" ]]; then
+      ui_error "Security gate: UNKNOWN Odoo port bindings"
+      bad=1
+    elif printf '%s' "${ports}" | grep -Eq '"HostIp":""|"HostIp":"0.0.0.0"|"HostIp":"::"'; then
+      # Empty HostIp with HostPort means all interfaces on Docker
+      if printf '%s' "${ports}" | grep -q '"8069/tcp"'; then
+        # Allow only when HostIp is explicitly 127.0.0.1 for every binding
+        if ! printf '%s' "${ports}" | grep -Eq '"HostIp":"127\.0\.0\.1"'; then
+          ui_error "Security gate: Odoo published on non-loopback interface"
+          bad=1
+        elif printf '%s' "${ports}" | grep -Eq '"HostIp":(""| "0.0.0.0"|"::")'; then
+          ui_error "Security gate: Odoo has public HostIp binding"
+          bad=1
+        fi
+      fi
+    fi
+    # Stricter: any HostIp that is not 127.0.0.1 for 8069
+    if printf '%s' "${ports}" | grep -q '8069/tcp'; then
+      if printf '%s' "${ports}" | grep -Eo '"HostIp":"[^"]*"' | grep -vq '"HostIp":"127.0.0.1"'; then
+        ui_error "Security gate: Odoo HostIp must be 127.0.0.1 only"
+        bad=1
+      fi
+    fi
+    local priv sock hostn
+    priv="$(docker inspect -f '{{.HostConfig.Privileged}}' "${web}" 2>/dev/null || echo UNKNOWN)"
+    hostn="$(docker inspect -f '{{.HostConfig.NetworkMode}}' "${web}" 2>/dev/null || echo UNKNOWN)"
+    [[ "${priv}" == "true" ]] && { ui_error "Security gate: privileged web container"; bad=1; }
+    [[ "${priv}" == "UNKNOWN" ]] && { ui_error "Security gate: UNKNOWN privileged state"; bad=1; }
+    [[ "${hostn}" == "host" ]] && { ui_error "Security gate: host network on web"; bad=1; }
+    if docker inspect -f '{{range .Mounts}}{{.Source}}{{"\n"}}{{end}}' "${web}" 2>/dev/null | grep -Fq 'docker.sock'; then
+      ui_error "Security gate: docker.sock mounted"
+      bad=1
+    fi
+    # Bootstrap admin password must not appear in Odoo env
+    if [[ -n "${admin_pass}" ]]; then
+      local env_blob
+      env_blob="$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "${web}" 2>/dev/null || true)"
+      if [[ -n "${env_blob}" ]] && printf '%s' "${env_blob}" | grep -Fq -- "${admin_pass}"; then
+        ui_error "Security gate: bootstrap PG admin secret present in Odoo env"
+        bad=1
+      fi
+    fi
+  else
+    ui_error "Security gate: web container missing — fail-closed"
+    bad=1
+  fi
+
+  if [[ -n "${db}" ]] && docker inspect "${db}" >/dev/null 2>&1; then
+    local pgports
+    pgports="$(docker inspect -f '{{json .NetworkSettings.Ports}}' "${db}" 2>/dev/null || echo '{}')"
+    if printf '%s' "${pgports}" | grep -q '5432/tcp' && printf '%s' "${pgports}" | grep -Eq '"HostPort":"[0-9]+"'; then
+      ui_error "Security gate: PostgreSQL host publish detected"
+      bad=1
+    fi
+    if [[ -n "${admin_pass}" ]]; then
+      local attrs
+      attrs="$(docker exec -e PGPASSWORD="${admin_pass}" "${db}" \
+        psql -U "${admin_user}" -d postgres -tAc \
+        "SELECT rolsuper||','||rolcreaterole||','||rolcreatedb||','||rolreplication||','||rolbypassrls FROM pg_roles WHERE rolname='${app_user}'" \
+        2>/dev/null | tr -d '[:space:]' || echo UNKNOWN)"
+      if [[ "${attrs}" == "UNKNOWN" || -z "${attrs}" ]]; then
+        ui_error "Security gate: UNKNOWN app role attrs — fail-closed"
+        bad=1
+      else
+        case "${attrs}" in
+          f,f,f,f,f|false,false,false,false,false) ;;
+          *)
+            ui_error "Security gate: app role not least-privilege"
+            bad=1
+            ;;
+        esac
+      fi
+    else
+      ui_error "Security gate: SOVIEZ_PG_ADMIN_PASSWORD unset — fail-closed"
+      bad=1
+    fi
+  else
+    ui_error "Security gate: db container missing — fail-closed"
+    bad=1
+  fi
+
+  local conf
+  conf="$(tenant_soviez_conf_path 2>/dev/null || true)"
+  if [[ -n "${conf}" && -f "${conf}" ]]; then
+    if ! grep -Eiq '^[[:space:]]*proxy_mode[[:space:]]*=[[:space:]]*True' "${conf}"; then
+      ui_error "Security gate: proxy_mode not True"
+      bad=1
+    fi
+  fi
+
+  [[ "${bad}" -eq 0 ]] || return 1
+  ui_ok "Security Gate S1 critical containment PASS"
+  return 0
+}
+
 # Detect the NUL-squash bug: CMD became "postgres-cshared_buffers=…" (single token).
 postgres_cmd_is_mangled() {
   container_exists "${DB_CONTAINER}" || return 1
@@ -1512,6 +1771,7 @@ recycle_postgres_engine() {
   docker rm -f "${DB_CONTAINER}" >>"${LOG_FILE}" 2>&1 || true
   _docker_run_postgres_container || return 1
   wait_for_postgres || return 1
+  provision_pg_app_role_least_privilege || return 1
   ui_ok "PostgreSQL recreated (${DB_CONTAINER})"
   return 0
 }
@@ -1601,6 +1861,7 @@ limit_memory_hard = 2684354560
 addons_path = /opt/soviez-erp/addons,/opt/soviez-erp/odoo/addons
 data_dir = /root/.local/share/Odoo
 list_db = False
+proxy_mode = True
 EOF
     chmod 640 "${conf_path}"
     log_file "Created tenant runtime tenant.soviez.conf at ${conf_path}"
@@ -1610,11 +1871,12 @@ EOF
   if [[ -n "${DB_CONTAINER:-}" ]]; then
     conf_set_option "${conf_path}" "db_host" "${DB_CONTAINER}"
     conf_set_option "${conf_path}" "db_port" "5432"
-    conf_set_option "${conf_path}" "db_user" "${DB_APP_USER:-soviez}"
+    conf_set_option "${conf_path}" "db_user" "${DB_APP_USER:-soviez_app}"
   fi
   if [[ -n "${SOVIEZ_DB_PASSWORD:-}" ]]; then
     conf_set_option "${conf_path}" "db_password" "${SOVIEZ_DB_PASSWORD}"
   fi
+  conf_set_option "${conf_path}" "proxy_mode" "True"
 
   # Monodb lock: with a staging clone on the same Postgres, production MUST filter
   # or Odoo redirects to /web/database/selector (list_db=False → dead-end UI).
@@ -1792,6 +2054,10 @@ compute_allocation_for_tenant() {
   (( ALLOC_CORES > usable_cpu )) && ALLOC_CORES="${usable_cpu}"
 
   WORKERS=$(( ALLOC_CORES * 2 + 1 ))
+  # Memory/cgroup sizing may use the formula above; certified Odoo realtime topology
+  # requires workers=0 with /websocket → HTTP :8069 (no gevent publish). Multi-worker
+  # + gevent_port is NOT_SUPPORTED until a certified gevent Nginx path exists.
+  ODOO_WORKERS=0
   LIMIT_SOFT_BYTES=$(( WORKERS * 600 * 1024 * 1024 ))
   LIMIT_HARD_BYTES=$(( WORKERS * 800 * 1024 * 1024 ))
   PG_SHARED_MB=$(( ALLOC_RAM_MB * 25 / 100 ))
@@ -1800,7 +2066,7 @@ compute_allocation_for_tenant() {
   DOCKER_MEM_MB=$(( LIMIT_HARD_BYTES / 1024 / 1024 + PG_SHARED_MB + 512 ))
   DOCKER_CPUS="${ALLOC_CORES}"
 
-  log_file "ALLOC tenant=${WEB_CONTAINER} ram_mb=${ALLOC_RAM_MB} cores=${ALLOC_CORES} workers=${WORKERS} pg_shared=${PG_SHARED_MB}MB docker_mem=${DOCKER_MEM_MB}MB"
+  log_file "ALLOC tenant=${WEB_CONTAINER} ram_mb=${ALLOC_RAM_MB} cores=${ALLOC_CORES} sizing_workers=${WORKERS} odoo_workers=${ODOO_WORKERS} pg_shared=${PG_SHARED_MB}MB docker_mem=${DOCKER_MEM_MB}MB"
 }
 
 persist_resource_tuning_env() {
@@ -1844,9 +2110,9 @@ _docker_run_postgres_container() {
       --network "${NETWORK_NAME}" \
       --shm-size="${shm_size}" \
       -e POSTGRES_DB=postgres \
-      -e POSTGRES_USER=soviez \
-      -e POSTGRES_PASSWORD="${SOVIEZ_DB_PASSWORD}" \
-      -e PASSWORD="${SOVIEZ_DB_PASSWORD}" \
+      -e POSTGRES_USER="${DB_ADMIN_USER:-soviez_admin}" \
+      -e POSTGRES_PASSWORD="${SOVIEZ_PG_ADMIN_PASSWORD}" \
+      -e PASSWORD="${SOVIEZ_PG_ADMIN_PASSWORD}" \
       -v "${DB_VOLUME}:/var/lib/postgresql/data" \
       "${DB_IMAGE}" \
       postgres \
@@ -1862,9 +2128,9 @@ _docker_run_postgres_container() {
       --network "${NETWORK_NAME}" \
       --shm-size="${shm_size}" \
       -e POSTGRES_DB=postgres \
-      -e POSTGRES_USER=soviez \
-      -e POSTGRES_PASSWORD="${SOVIEZ_DB_PASSWORD}" \
-      -e PASSWORD="${SOVIEZ_DB_PASSWORD}" \
+      -e POSTGRES_USER="${DB_ADMIN_USER:-soviez_admin}" \
+      -e POSTGRES_PASSWORD="${SOVIEZ_PG_ADMIN_PASSWORD}" \
+      -e PASSWORD="${SOVIEZ_PG_ADMIN_PASSWORD}" \
       -v "${DB_VOLUME}:/var/lib/postgresql/data" \
       "${DB_IMAGE}" >>"${LOG_FILE}" 2>&1
     run_rc=$?
@@ -1897,6 +2163,7 @@ start_db_container() {
     if container_running "${DB_CONTAINER}"; then
       log_file "DB ${DB_CONTAINER} already running"
       if wait_for_postgres; then
+        provision_pg_app_role_least_privilege || return 1
         ui_ok "PostgreSQL ready (${DB_CONTAINER})"
         return 0
       fi
@@ -1905,6 +2172,7 @@ start_db_container() {
     fi
     docker start "${DB_CONTAINER}" >>"${LOG_FILE}" 2>&1 || true
     if wait_for_postgres; then
+      provision_pg_app_role_least_privilege || return 1
       ui_ok "PostgreSQL started (${DB_CONTAINER})"
       return 0
     fi
@@ -1915,6 +2183,7 @@ start_db_container() {
   ui_wait "Creating PostgreSQL (${DB_CONTAINER})..."
   _docker_run_postgres_container || return 1
   wait_for_postgres || return 1
+  provision_pg_app_role_least_privilege || return 1
   ui_ok "PostgreSQL created (${DB_CONTAINER}, shm-size=$(postgres_shm_size))"
 }
 
@@ -1927,6 +2196,7 @@ recreate_postgres_with_tuning() {
   ui_wait "Recreating ${DB_CONTAINER} on volume ${DB_VOLUME} with tuned PostgreSQL buffers..."
   _docker_run_postgres_container || return 1
   wait_for_postgres || return 1
+  provision_pg_app_role_least_privilege || return 1
   ui_ok "PostgreSQL ${DB_CONTAINER} online with tuned buffers (shm-size=$(postgres_shm_size))"
 }
 
@@ -1942,7 +2212,10 @@ apply_tenant_resource_tuning() {
     return 1
   fi
 
-  ui_info "Applying tuning to ${WEB_CONTAINER}: workers=${WORKERS}, cores=${DOCKER_CPUS}, ram=${DOCKER_MEM_MB}MB"
+  ui_info "Applying tuning to ${WEB_CONTAINER}: odoo_workers=${ODOO_WORKERS:-0} (certified), cores=${DOCKER_CPUS}, ram=${DOCKER_MEM_MB}MB"
+  if [[ "${WORKERS:-0}" != "0" ]]; then
+    ui_warn "Resource formula sizing_workers=${WORKERS} — Odoo workers forced to 0 (certified WebSocket topology; multi-worker/gevent NOT_SUPPORTED)."
+  fi
 
   ui_wait "Stopping ${WEB_CONTAINER} (flush in-flight transactions)..."
   docker stop "${WEB_CONTAINER}" >>"${LOG_FILE}" 2>&1 || true
@@ -1955,9 +2228,10 @@ apply_tenant_resource_tuning() {
 
   recreate_postgres_with_tuning || return 1
 
-  conf_set_option "${conf_path}" workers "${WORKERS}"
+  conf_set_option "${conf_path}" workers "${ODOO_WORKERS:-0}"
   conf_set_option "${conf_path}" limit_memory_soft "${LIMIT_SOFT_BYTES}"
   conf_set_option "${conf_path}" limit_memory_hard "${LIMIT_HARD_BYTES}"
+  conf_set_option "${conf_path}" proxy_mode "True"
 
   ui_wait "Applying Docker cgroup limits on ${WEB_CONTAINER}..."
   docker update \
@@ -2092,8 +2366,8 @@ _docker_run_web_container() {
     --restart unless-stopped \
     --network "${NETWORK_NAME}" \
     --mac-address "${SOVIEZ_CONTAINER_MAC}" \
-    -p "${SOVIEZ_HOST_PORT}:8069" \
-    -e POSTGRES_USER=soviez \
+    -p "127.0.0.1:${SOVIEZ_HOST_PORT}:8069" \
+    -e POSTGRES_USER="${DB_APP_USER:-soviez_app}" \
     -e POSTGRES_PASSWORD="${SOVIEZ_DB_PASSWORD}" \
     -e PASSWORD="${SOVIEZ_DB_PASSWORD}" \
     -e SOVIEZ_MIGRATION_SECRET="${SOVIEZ_MIGRATION_SECRET}" \
@@ -2105,7 +2379,7 @@ _docker_run_web_container() {
       --addons-path="${addons_cli}" \
       --db_host="${DB_CONTAINER}" \
       --db_port=5432 \
-      --db_user=soviez \
+      --db_user="${DB_APP_USER:-soviez_app}" \
       --db_password="${SOVIEZ_DB_PASSWORD}" \
       --data-dir=/root/.local/share/Odoo \
       --admin-passwd="${SOVIEZ_ADMIN_PASSWORD}" \
@@ -2191,16 +2465,16 @@ list_odoo_databases() {
     printf '%s\n' "${SOVIEZ_DB_NAME}"
     return 0
   fi
-  docker exec "${DB_CONTAINER}" \
-    psql -U soviez -d postgres -Atc \
+  docker exec -e PGPASSWORD="${SOVIEZ_DB_PASSWORD}" "${DB_CONTAINER}" \
+    psql -U "${DB_APP_USER:-soviez_app}" -d postgres -Atc \
     "SELECT datname FROM pg_database WHERE datistemplate = false AND datname NOT IN ('postgres');" \
     2>/dev/null | sed '/^$/d' || true
 }
 
 purge_frontend_assets() {
   local dbname="$1"
-  docker exec "${DB_CONTAINER}" \
-    psql -U soviez -d "${dbname}" -v ON_ERROR_STOP=1 -c \
+  docker exec -e PGPASSWORD="${SOVIEZ_DB_PASSWORD}" "${DB_CONTAINER}" \
+    psql -U "${DB_APP_USER:-soviez_app}" -d "${dbname}" -v ON_ERROR_STOP=1 -c \
     "DELETE FROM ir_attachment
      WHERE url LIKE '/web/assets/%'
         OR url LIKE '/web/content/%assets%'
@@ -2241,7 +2515,7 @@ run_schema_upgrade_for_db() {
   docker run --rm \
     --network "${NETWORK_NAME}" \
     --mac-address "${SOVIEZ_CONTAINER_MAC}" \
-    -e POSTGRES_USER=soviez \
+    -e POSTGRES_USER="${DB_APP_USER:-soviez_app}" \
     -e POSTGRES_PASSWORD="${SOVIEZ_DB_PASSWORD}" \
     -e SOVIEZ_MIGRATION_SECRET="${SOVIEZ_MIGRATION_SECRET}" \
     "${volume_args[@]}" \
@@ -2250,7 +2524,7 @@ run_schema_upgrade_for_db() {
       --addons-path="${addons_cli}" \
       --db_host="${DB_CONTAINER}" \
       --db_port=5432 \
-      --db_user=soviez \
+      --db_user="${DB_APP_USER:-soviez_app}" \
       --db_password="${SOVIEZ_DB_PASSWORD}" \
       --data-dir=/root/.local/share/Odoo \
       --admin-passwd="${SOVIEZ_ADMIN_PASSWORD}" \
@@ -2288,7 +2562,7 @@ run_schema_upgrades() {
 }
 
 require_complete_env() {
-  if [[ -z "${SOVIEZ_CONTAINER_MAC:-}" || -z "${SOVIEZ_DB_PASSWORD:-}" || -z "${SOVIEZ_HOST_PORT:-}" || -z "${SOVIEZ_ADMIN_PASSWORD:-}" ]]; then
+  if [[ -z "${SOVIEZ_CONTAINER_MAC:-}" || -z "${SOVIEZ_DB_PASSWORD:-}" || -z "${SOVIEZ_PG_ADMIN_PASSWORD:-}" || -z "${SOVIEZ_HOST_PORT:-}" || -z "${SOVIEZ_ADMIN_PASSWORD:-}" ]]; then
     ui_error "${ENV_FILE} is missing required secrets (MAC / DB password / admin password / host port)."
     exit 1
   fi
@@ -2367,7 +2641,7 @@ run_odoo_maintenance() {
   set +e
   docker run --rm \
     --network "${NETWORK_NAME}" \
-    -e POSTGRES_USER=soviez \
+    -e POSTGRES_USER="${DB_APP_USER:-soviez_app}" \
     -e POSTGRES_PASSWORD="${SOVIEZ_DB_PASSWORD}" \
     -e PASSWORD="${SOVIEZ_DB_PASSWORD}" \
     -e SOVIEZ_MIGRATION_SECRET="${SOVIEZ_MIGRATION_SECRET}" \
@@ -2377,7 +2651,7 @@ run_odoo_maintenance() {
       --addons-path="${addons_cli}" \
       --db_host="${DB_CONTAINER}" \
       --db_port=5432 \
-      --db_user=soviez \
+      --db_user="${DB_APP_USER:-soviez_app}" \
       --db_password="${SOVIEZ_DB_PASSWORD}" \
       --data-dir=/root/.local/share/Odoo \
       --admin-passwd="${SOVIEZ_ADMIN_PASSWORD}" \
@@ -2404,7 +2678,7 @@ run_odoo_maintenance_stdin() {
   set +e
   docker run --rm -i \
     --network "${NETWORK_NAME}" \
-    -e POSTGRES_USER=soviez \
+    -e POSTGRES_USER="${DB_APP_USER:-soviez_app}" \
     -e POSTGRES_PASSWORD="${SOVIEZ_DB_PASSWORD}" \
     -e PASSWORD="${SOVIEZ_DB_PASSWORD}" \
     -e SOVIEZ_MIGRATION_SECRET="${SOVIEZ_MIGRATION_SECRET}" \
@@ -2416,7 +2690,7 @@ run_odoo_maintenance_stdin() {
       --addons-path="${addons_cli}" \
       --db_host="${DB_CONTAINER}" \
       --db_port=5432 \
-      --db_user=soviez \
+      --db_user="${DB_APP_USER:-soviez_app}" \
       --db_password="${SOVIEZ_DB_PASSWORD}" \
       --data-dir=/root/.local/share/Odoo \
       --admin-passwd="${SOVIEZ_ADMIN_PASSWORD}" \
@@ -2485,6 +2759,7 @@ provision_application_database() {
   else
     app_password="${SOVIEZ_APP_PASSWORD}"
   fi
+  soviez_password_assert_not_weak_erp "${app_password}" "SOVIEZ_APP_PASSWORD" || return 1
   SOVIEZ_APP_PASSWORD="${app_password}"
 
   if pg_database_exists "${dbname}"; then
@@ -2562,6 +2837,7 @@ run_tenant_core_pipeline() {
     verify_and_heal_tenant_https "${domain}" "${SOVIEZ_HOST_PORT}"
   fi
 
+  security_validate_critical_containment_erp || return 1
   return 0
 }
 
@@ -2986,7 +3262,7 @@ ssl_le_privkey_path() {
 # Guarantee Certbot's nginx authenticator/installer plugin is present and loadable.
 ensure_certbot_nginx_plugin() {
   export DEBIAN_FRONTEND=noninteractive
-  heal_apt_locks
+  heal_apt_locks || return 1
   ui_wait "Ensuring Certbot nginx plugin (python3-certbot-nginx)..."
   if ! command -v certbot >/dev/null 2>&1; then
     apt-get install -y certbot python3-certbot-nginx >>"${LOG_FILE}" 2>&1 || {
@@ -3006,7 +3282,7 @@ ensure_certbot_nginx_plugin() {
 
   if ! printf '%s' "${plugins}" | grep -Eiq '(^|[[:space:]])nginx([[:space:]]|$)|\* nginx'; then
     ui_warn "Certbot nginx plugin not loaded — force-reinstalling python3-certbot-nginx..."
-    heal_apt_locks
+    heal_apt_locks || return 1
     apt-get install -y --reinstall python3-certbot-nginx certbot >>"${LOG_FILE}" 2>&1 || {
       ui_error "Force-reinstall of python3-certbot-nginx failed — see ${LOG_FILE}"
       return 1
@@ -3206,6 +3482,20 @@ server {
     }
 
     location /websocket {
+        proxy_pass http://127.0.0.1:${host_port};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection \$connection_upgrade;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 720s;
+        add_header X-Soviez-Tenant "${tenant_token}" always;
+    }
+
+    # Compatibility route: same HTTP upstream (certified workers=0 topology).
+    location /longpolling {
         proxy_pass http://127.0.0.1:${host_port};
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
@@ -3584,12 +3874,16 @@ ensure_ufw() {
   if ! command -v ufw >/dev/null 2>&1; then
     show_progress "Installing UFW..." apt-get install -y ufw || return 1
   fi
-  # Open required ports BEFORE enabling (preserve SSH)
+  # Open required ports BEFORE enabling (preserve SSH). Never ufw reset / iptables -F.
   ufw allow 22/tcp >>"${LOG_FILE}" 2>&1 || true
   ufw allow OpenSSH >>"${LOG_FILE}" 2>&1 || true
   ufw allow 80/tcp >>"${LOG_FILE}" 2>&1 || true
   ufw allow 443/tcp >>"${LOG_FILE}" 2>&1 || true
-  ufw --force enable >>"${LOG_FILE}" 2>&1 || true
+  # Do not open 8069/8071/8072/5432 (S1/S2 containment).
+  # Note: grep must match "Status: active" not bare "active" (matches inactive).
+  if ! ufw status 2>/dev/null | head -1 | grep -Eqi 'Status:[[:space:]]*active'; then
+    ufw --force enable >>"${LOG_FILE}" 2>&1 || true
+  fi
   ui_ok "UFW active — ports 22 / 80 / 443 allowed"
 }
 
@@ -3814,9 +4108,9 @@ mode_init() {
     "Containers are NOT launched in this mode." \
     "After success, provision tenants with: ./soviez.sh --new"
 
-  # Self-heal common host blockers before mutating packages / binds (v0.1.2).
+  # Wait for apt locks before mutating packages / binds (S5 corr1 — never kill).
   resolve_port_collisions 80 443
-  heal_apt_locks
+  heal_apt_locks || exit 1
 
   # Refresh package indexes only — do not apt-upgrade the host (avoids breaking changes).
   show_progress "Refreshing apt package indexes..." apt-get update -y || {
@@ -3903,7 +4197,10 @@ mode_new() {
   ensure_custom_addons_dir
 
   SOVIEZ_CONTAINER_MAC="$(generate_mac)"
-  SOVIEZ_DB_PASSWORD="$(generate_password)"
+  SOVIEZ_PG_ADMIN_PASSWORD="$(generate_password)"  # bootstrap
+  SOVIEZ_DB_PASSWORD="$(generate_password)"  # app role password
+  soviez_password_assert_not_weak_erp "${SOVIEZ_DB_PASSWORD}" "SOVIEZ_DB_PASSWORD" || exit 1
+  soviez_password_assert_not_weak_erp "${SOVIEZ_PG_ADMIN_PASSWORD}" "SOVIEZ_PG_ADMIN_PASSWORD" || exit 1
   SOVIEZ_ADMIN_PASSWORD="$(generate_password)"
   SOVIEZ_MIGRATION_SECRET="$(generate_migration_secret)"
   SOVIEZ_HOST_PORT="$(find_free_host_port "${MULTI_PORT_START}")"
@@ -3917,6 +4214,7 @@ mode_new() {
 SOVIEZ_INSTANCE_INDEX=${next_index}
 SOVIEZ_HOST_PORT=${SOVIEZ_HOST_PORT}
 SOVIEZ_CONTAINER_MAC=${SOVIEZ_CONTAINER_MAC}
+SOVIEZ_PG_ADMIN_PASSWORD=${SOVIEZ_PG_ADMIN_PASSWORD}
 SOVIEZ_DB_PASSWORD=${SOVIEZ_DB_PASSWORD}
 SOVIEZ_ADMIN_PASSWORD=${SOVIEZ_ADMIN_PASSWORD}
 SOVIEZ_MIGRATION_SECRET=${SOVIEZ_MIGRATION_SECRET}
@@ -4732,8 +5030,8 @@ load_tenant_topology_from_ref() {
 pg_terminate_db_connections() {
   local dbname="$1"
   assert_safe_dbname "${dbname}"
-  docker exec "${DB_CONTAINER}" \
-    psql -U "${DB_APP_USER}" -d postgres -v ON_ERROR_STOP=1 -c \
+  docker exec -e PGPASSWORD="${SOVIEZ_PG_ADMIN_PASSWORD}" "${DB_CONTAINER}" \
+    psql -U "${DB_ADMIN_USER:-soviez_admin}" -d postgres -v ON_ERROR_STOP=1 -c \
     "SELECT pg_terminate_backend(pg_stat_activity.pid)
      FROM pg_stat_activity
      WHERE pg_stat_activity.datname = '${dbname}'
@@ -4743,8 +5041,8 @@ pg_terminate_db_connections() {
 pg_database_exists() {
   local dbname="$1"
   local found
-  found="$(docker exec "${DB_CONTAINER}" \
-    psql -U "${DB_APP_USER}" -d postgres -Atc \
+  found="$(docker exec -e PGPASSWORD="${SOVIEZ_PG_ADMIN_PASSWORD}" "${DB_CONTAINER}" \
+    psql -U "${DB_ADMIN_USER:-soviez_admin}" -d postgres -Atc \
     "SELECT 1 FROM pg_database WHERE datname = '${dbname}' LIMIT 1;" 2>/dev/null || true)"
   [[ "${found}" == "1" ]]
 }
@@ -4752,7 +5050,7 @@ pg_database_exists() {
 # Returns ir_config_parameter value for database.is_neutralized (empty if missing).
 pg_is_neutralized_value() {
   local dbname="$1"
-  docker exec "${DB_CONTAINER}" \
+  docker exec -e PGPASSWORD="${SOVIEZ_DB_PASSWORD}" "${DB_CONTAINER}" \
     psql -U "${DB_APP_USER}" -d "${dbname}" -Atc \
     "SELECT value FROM ir_config_parameter WHERE key = 'database.is_neutralized' LIMIT 1;" \
     2>/dev/null || true
@@ -4917,7 +5215,7 @@ remove_filestore_dir() {
 mark_database_neutralized_sql() {
   local target_db="$1"
   assert_safe_dbname "${target_db}"
-  docker exec "${DB_CONTAINER}" \
+  docker exec -e PGPASSWORD="${SOVIEZ_DB_PASSWORD}" "${DB_CONTAINER}" \
     psql -U "${DB_APP_USER}" -d "${target_db}" -v ON_ERROR_STOP=1 -c \
     "UPDATE ir_config_parameter SET value = 'True', write_date = NOW()
        WHERE key = 'database.is_neutralized';
@@ -4941,7 +5239,7 @@ run_odoo_neutralize() {
   local db_user db_pass stage_web conf_in_container stage_conf_host
 
   assert_safe_dbname "${dbname}"
-  db_user="${DB_APP_USER:-soviez}"
+  db_user="${DB_APP_USER:-soviez_app}"
   db_pass="${SOVIEZ_DB_PASSWORD:-}"
   if [[ -z "${db_pass}" ]]; then
     ui_error "SOVIEZ_DB_PASSWORD unset — cannot neutralize ${dbname}"
@@ -5231,7 +5529,7 @@ ensure_stage_soviez_conf() {
   fi
 
   db_host="${DB_CONTAINER}"
-  db_user="${DB_APP_USER:-soviez}"
+  db_user="${DB_APP_USER:-soviez_app}"
   db_pass="${SOVIEZ_DB_PASSWORD:-}"
   if [[ -z "${db_pass}" ]]; then
     ui_error "SOVIEZ_DB_PASSWORD unset — cannot write stage tenant.soviez.conf DB DSN"
@@ -5244,6 +5542,8 @@ ensure_stage_soviez_conf() {
 ; list_db stays False; dbfilter auto-loads ONLY the cloned stage database.
 ; DB DSN is embedded so docker exec neutralize/CLI works without re-passing argv secrets.
 ; Custom addons bind is the isolated host *_stage tree (not production).
+; proxy_mode required behind Nginx (post-cert Stage parity with Production).
+proxy_mode = True
 workers = 0
 limit_memory_soft = 2147483648
 limit_memory_hard = 2684354560
@@ -5377,8 +5677,8 @@ _docker_run_stage_web_container() {
     --restart unless-stopped \
     --network "${STAGE_NETWORK_NAME}" \
     --mac-address "${stage_mac}" \
-    -p "${stage_port}:8069" \
-    -e POSTGRES_USER=soviez \
+    -p "127.0.0.1:${stage_port}:8069" \
+    -e POSTGRES_USER="${DB_APP_USER:-soviez_app}" \
     -e POSTGRES_PASSWORD="${SOVIEZ_DB_PASSWORD}" \
     -e PASSWORD="${SOVIEZ_DB_PASSWORD}" \
     -e SOVIEZ_MIGRATION_SECRET="${SOVIEZ_MIGRATION_SECRET}" \
@@ -5390,7 +5690,7 @@ _docker_run_stage_web_container() {
       --addons-path="${addons_cli}" \
       --db_host="${DB_CONTAINER}" \
       --db_port=5432 \
-      --db_user=soviez \
+      --db_user="${DB_APP_USER:-soviez_app}" \
       --db_password="${SOVIEZ_DB_PASSWORD}" \
       --data-dir=/root/.local/share/Odoo \
       --admin-passwd="${SOVIEZ_ADMIN_PASSWORD}" \
@@ -5495,16 +5795,16 @@ mode_stage() {
     ui_warn "Staging database '${STAGE_DB_NAME}' already exists — replacing it"
     pg_terminate_db_connections "${STAGE_DB_NAME}"
     ui_wait "Dropping existing ${STAGE_DB_NAME}..."
-    docker exec "${DB_CONTAINER}" \
-      psql -U "${DB_APP_USER}" -d postgres -v ON_ERROR_STOP=1 -c \
+    docker exec -e PGPASSWORD="${SOVIEZ_PG_ADMIN_PASSWORD}" "${DB_CONTAINER}" \
+      psql -U "${DB_ADMIN_USER:-soviez_admin}" -d postgres -v ON_ERROR_STOP=1 -c \
       "DROP DATABASE IF EXISTS \"${STAGE_DB_NAME}\";" >>"${LOG_FILE}" 2>&1
     ui_ok "Dropped previous ${STAGE_DB_NAME}"
   fi
 
   # ---- Step B: CREATE DATABASE stage WITH TEMPLATE ----
   ui_wait "Creating database ${STAGE_DB_NAME} WITH TEMPLATE ${STAGE_SOURCE_DB}..."
-  if ! docker exec "${DB_CONTAINER}" \
-      psql -U "${DB_APP_USER}" -d postgres -v ON_ERROR_STOP=1 -c \
+  if ! docker exec -e PGPASSWORD="${SOVIEZ_PG_ADMIN_PASSWORD}" "${DB_CONTAINER}" \
+      psql -U "${DB_ADMIN_USER:-soviez_admin}" -d postgres -v ON_ERROR_STOP=1 -c \
       "CREATE DATABASE \"${STAGE_DB_NAME}\" WITH TEMPLATE \"${STAGE_SOURCE_DB}\" OWNER ${DB_APP_USER};" \
       >>"${LOG_FILE}" 2>&1; then
     ui_error "CREATE DATABASE failed — ensure no sessions remain on ${STAGE_SOURCE_DB}. See ${LOG_FILE}"
@@ -5662,8 +5962,8 @@ mode_dropstage() {
     pg_terminate_db_connections "${DROPSTAGE_DB}"
     ui_ok "Connections cleared"
     ui_wait "Dropping database ${DROPSTAGE_DB}..."
-    if ! docker exec "${DB_CONTAINER}" \
-        psql -U "${DB_APP_USER}" -d postgres -v ON_ERROR_STOP=1 -c \
+    if ! docker exec -e PGPASSWORD="${SOVIEZ_PG_ADMIN_PASSWORD}" "${DB_CONTAINER}" \
+        psql -U "${DB_ADMIN_USER:-soviez_admin}" -d postgres -v ON_ERROR_STOP=1 -c \
         "DROP DATABASE IF EXISTS \"${DROPSTAGE_DB}\";" >>"${LOG_FILE}" 2>&1; then
       ui_error "DROP DATABASE failed — see ${LOG_FILE}"
       exit 1
@@ -5741,7 +6041,7 @@ mode_backup() {
 
   local db_size filestore_size idx stamp archive workdir dump_file
   ui_wait "Measuring database and filestore size for space guard..."
-  db_size="$(docker exec -i "${DB_CONTAINER}" \
+  db_size="$(docker exec -e PGPASSWORD="${SOVIEZ_DB_PASSWORD}" -i "${DB_CONTAINER}" \
     psql -U "${DB_APP_USER}" -d postgres -t -A -c \
     "SELECT pg_database_size('${BACKUP_DB}');" 2>/dev/null | tr -d '[:space:]' || true)"
   if [[ -z "${db_size}" || ! "${db_size}" =~ ^[0-9]+$ ]]; then
@@ -5764,7 +6064,7 @@ mode_backup() {
   trap 'rm -rf "${workdir}"' RETURN
 
   ui_wait "Running pg_dump -Fc for ${BACKUP_DB}..."
-  if ! docker exec -i "${DB_CONTAINER}" \
+  if ! docker exec -e PGPASSWORD="${SOVIEZ_DB_PASSWORD}" -i "${DB_CONTAINER}" \
       pg_dump -U "${DB_APP_USER}" -d "${BACKUP_DB}" -F c > "${dump_file}" 2>>"${LOG_FILE}"; then
     ui_error "pg_dump failed — see ${LOG_FILE}"
     exit 1
