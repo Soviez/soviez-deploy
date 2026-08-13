@@ -1,5 +1,17 @@
 # Soviez ERP (v18.0.1.01.5)
 
+
+
+## Repository policy (binding)
+
+```text
+Soviez/soviez-deploy = CLIENT-SIDE DEPLOYMENT REPOSITORY ONLY
+```
+
+This repository publishes only files needed on, or delivered to, a customer server when using Soviez.sh to install/manage Soviez ERP.
+
+Internal Soviez-operated services — including the Registry Gateway **server** implementation — are **not** published here. Client-side Registry consumption lives under `src/registry/` and `src/api/registry_client.sh`.
+
 **A hardened, high-performance, corporate-sovereign Enterprise Resource Planning platform.**
 
 Soviez ERP is a specialized, production-ready **sovereign enterprise resource planning platform**, engineered for total data privacy, infrastructure independence, and zero vendor lock-in. Deploy it on your metal, in your VPC, or on any Docker-capable host — you retain full control of the runtime, the database, and the data plane.

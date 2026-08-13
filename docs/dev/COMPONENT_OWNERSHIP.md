@@ -21,7 +21,8 @@
 | Nginx (Production wizard) | `Soviez ERP/soviez.sh` `write_nginx_site` |
 | Database provision | `src/database/`, ERP wizard PG run |
 | Entitlement client | `src/entitlement/`, `src/api/` |
-| Registry | `src/registry/` |
+| Registry **client** (ticket → temp Docker auth → digest pull → cleanup) | `src/registry/`, `src/api/registry_client.sh` |
+| Registry Gateway **server** (internal Soviez-operated) | Local `soviez-registry-gateway/` — **not** published in `Soviez/soviez-deploy` |
 | SaaS authority | `soviez-saas/` |
 
 AI agents: read this before adding features.

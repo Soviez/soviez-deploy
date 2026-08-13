@@ -148,9 +148,9 @@ Each phase below is a separately executable unit. Do not combine phases without 
 | Field | Content |
 |-------|---------|
 | Objective | Private image + pull sessions + digest manifests. |
-| Scope | Migration `083`; SaaS `/api/installer/registry/*`; signed release manifests; Ed25519 pull tickets; Node gateway `services/registry-gateway`; offline bundle foundation; CI prep workflow. |
+| Scope | Migration `083`; SaaS `/api/installer/registry/*`; signed release manifests; Ed25519 pull tickets; internal Node gateway `soviez-registry-gateway/`; offline bundle foundation; CI prep workflow. |
 | Non-goals | Installer wiring; live Hub cutover; full offline distribution (phase 23); `local_license_guard` changes. |
-| Repos | `soviez-saas`, `soviez-sh/services/registry-gateway`, `Soviez ERP` prep workflow |
+| Repos | `soviez-saas`, internal `soviez-registry-gateway/`, `Soviez ERP` prep workflow; public client in `soviez-deploy/src/registry/` |
 | Tests | `test:phase7` (9), `test:phase7-db` (8), gateway (14); Phases 3–6 regression green |
 | Acceptance | Digest-first catalog; Device PoP + `private_image_pull`; gateway streams OCI; no client Hub creds; ERP runtime independent |
 | Complexity | High |

@@ -1,8 +1,8 @@
 # Repository Structure
 
 ```text
-soviez-sh/
-  src/           modular implementation
+soviez-deploy/   # PUBLIC client-side lifecycle repository ONLY
+  src/           modular client implementation
   build/         assemble.sh → dist/soviez.sh
   dist/          certified artifact
   tests/         unit/integration/security/final_certification
@@ -12,4 +12,6 @@ soviez-sh/
   PRODUCT_CONSTITUTION.md
 ```
 
-Key `src/` owners: `cli/`, `commands/`, `operations|ops/`, `update/`, `stage/`, `backup/`, `restore/`, `migration/`, `security/`, `offline_*`, `nginx/`, `database/`, `docker/`, `ssl/`, `entitlement/`, `registry/`.
+Key `src/` owners: `cli/`, `commands/`, `operations|ops/`, `update/`, `stage/`, `backup/`, `restore/`, `migration/`, `security/`, `offline_*`, `nginx/`, `database/`, `docker/`, `ssl/`, `entitlement/`, `registry/` (client consumer).
+
+**Not published here:** Registry Gateway server package (canonical local: `soviez-registry-gateway/`).

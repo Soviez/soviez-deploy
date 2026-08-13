@@ -1,0 +1,3 @@
+# Captured summary — internal package npm test
+# Path: /Volumes/PortableSSD/soviez-project/soviez-registry-gateway
+# Result: 20/20 PASS (tsx --test test/**/*.test.ts)

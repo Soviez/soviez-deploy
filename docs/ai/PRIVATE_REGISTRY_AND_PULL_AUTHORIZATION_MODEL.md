@@ -1,7 +1,7 @@
 # Private Registry and Pull Authorization Model
 
 **Status:** Implemented (Phase 7 foundation) — **PASS**  
-**Repos:** `soviez-saas` (migration `083`, `/api/installer/registry/*`, `src/lib/registry/*`); `soviez-sh/services/registry-gateway/`  
+**Repos:** `soviez-saas` (migration `083`, `/api/installer/registry/*`, `src/lib/registry/*`); Gateway server = internal `soviez-registry-gateway/`; client = `soviez-deploy/src/registry/`  
 **Does not wire the installer.** Running ERP never depends on registry or SaaS availability.
 
 ---
@@ -14,7 +14,7 @@ Deliver a **sovereignty-first private image pull authorization model** for Sovie
 2. **Commercial entitlement gate** — `private_image_pull` capability via Phase 4 resolver (`commercial_grants`); no blanket account access.
 3. **Device Proof-of-Possession (PoP)** — all SaaS pull APIs require Phase 5 signed device requests.
 4. **Short-lived pull sessions** — SaaS issues Ed25519 pull tickets; clients never receive Docker Hub credentials.
-5. **Dedicated streaming gateway** — Node service at `services/registry-gateway` proxies OCI blobs from Docker Hub upstream storage.
+5. **Dedicated streaming gateway** — internal Node service (`soviez-registry-gateway/`) proxies OCI blobs from Docker Hub upstream storage; **not** published in `Soviez/soviez-deploy`.
 6. **Offline signed bundle foundation** — verifiable release manifests and bundle metadata without live registry access.
 7. **ERP runtime independence** — image pull is an optional install/update operation; activated ERP continues offline if SaaS or registry is unavailable.
 
@@ -263,8 +263,8 @@ Device revocation, session expiry, or SaaS downtime **do not** stop or degrade a
 | Document | Purpose |
 |----------|---------|
 | `docs/dev/PRIVATE_REGISTRY_PROTOCOL.md` | Schemas, APIs, denial codes, OCI matrix |
-| `docs/dev/REGISTRY_GATEWAY.md` | Gateway deployment contract |
-| `services/registry-gateway/README.md` | Operator runbook |
+| `docs/dev/REGISTRY_GATEWAY.md` | Public client Gateway contract |
+| Local `soviez-registry-gateway/README.md` | Internal operator runbook (not in public deploy) |
 | `docs/evidence/phase-07-private-registry/FINAL_REPORT.md` | Phase gate evidence |
 
 ---

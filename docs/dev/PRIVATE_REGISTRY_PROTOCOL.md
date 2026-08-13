@@ -429,7 +429,8 @@ Verify with `verifyOfflineBundleManifest(publicKeys, optional archive bytes)`.
 | `soviez-saas/supabase/migrations/083_private_registry_pull_foundation.sql` | Schema + RLS |
 | `soviez-saas/src/lib/registry/service.ts` | Session + resolve logic |
 | `soviez-saas/src/app/api/installer/registry/**` | HTTP routes |
-| `soviez-sh/services/registry-gateway/` | OCI streaming gateway |
+| Local `soviez-registry-gateway/` (internal) | OCI streaming gateway (not published in `soviez-deploy`) |
+| `soviez-deploy/src/registry/` | Client pull consumer |
 
 Model: `docs/ai/PRIVATE_REGISTRY_AND_PULL_AUTHORIZATION_MODEL.md`
 

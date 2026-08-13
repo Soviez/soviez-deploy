@@ -20,6 +20,14 @@ Deliver a modular, sovereign deployment and operations engine that:
 
 Legacy reference installer: `soviez-deploy/soviez.sh` (read-only during discovery). Canonical future source: `/Volumes/PortableSSD/soviez-project/soviez-sh`.
 
+### Repository boundary (binding)
+
+```text
+Soviez/soviez-deploy = public CLIENT-SIDE lifecycle repository only
+```
+
+Only files required on customer servers for Soviez.sh lifecycle operations belong in `Soviez/soviez-deploy`. Internal Soviez-operated services — including the Registry Gateway **server** — must not be published there. Canonical Gateway package: local `soviez-registry-gateway/`.
+
 ---
 
 ## 2. Sovereignty First

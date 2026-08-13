@@ -1,0 +1,65 @@
+path	class	note
+soviez.sh	GENERATED_CLIENT_ARTIFACT	assembled wizard; also root copy
+VERSION	CLIENT_REQUIRED	artifact version
+README.md	PUBLIC_DOC	
+PRODUCT_CONSTITUTION.md	PUBLIC_DOC	governance
+PROJECT_STATE.md	PUBLIC_DOC	
+.gitignore	CLIENT_REQUIRED	hygiene
+.gitleaks.toml	CLIENT_REQUIRED	secret scan config
+dist	GENERATED_CLIENT_ARTIFACT	certified soviez.sh
+build	CLIENT_REQUIRED	assemble.sh
+src	CLIENT_REQUIRED	modular client lifecycle
+tests	PUBLIC_TEST	client tests
+tools	CLIENT_REQUIRED	secret_scan/docs_validate
+tooling	CLIENT_OPTIONAL	codegen helpers
+scripts	CLIENT_OPTIONAL	certification scripts
+schemas	CLIENT_REQUIRED	operation state schema
+share	CLIENT_OPTIONAL	shared security assets
+docs	PUBLIC_DOC	mixed; evidence historical
+services	INTERNAL_SERVICE	registry-gateway server — REMOVE
+services/registry-gateway/uninstall.sh	INTERNAL_SERVICE	Gateway server package
+services/registry-gateway/Dockerfile	INTERNAL_SERVICE	Gateway server package
+services/registry-gateway/install.sh	INTERNAL_SERVICE	Gateway server package
+services/registry-gateway/CANONICAL_SOURCE.md	INTERNAL_SERVICE	Gateway server package
+services/registry-gateway/README.md	INTERNAL_SERVICE	Gateway server package
+services/registry-gateway/.dockerignore	INTERNAL_SERVICE	Gateway server package
+services/registry-gateway/update.sh	INTERNAL_SERVICE	Gateway server package
+services/registry-gateway/.gitignore	INTERNAL_SERVICE	Gateway server package
+services/registry-gateway/package-lock.json	INTERNAL_SERVICE	Gateway server package
+services/registry-gateway/package.json	INTERNAL_SERVICE	Gateway server package
+services/registry-gateway/VERSION	INTERNAL_SERVICE	Gateway server package
+services/registry-gateway/tsconfig.json	INTERNAL_SERVICE	Gateway server package
+services/registry-gateway/.env.example	INTERNAL_SERVICE	Gateway server package
+services/registry-gateway/compose.yml	INTERNAL_SERVICE	Gateway server package
+services/registry-gateway/healthcheck.sh	INTERNAL_SERVICE	Gateway server package
+services/registry-gateway/test/gateway.test.ts	INTERNAL_SERVICE	Gateway server package
+services/registry-gateway/config/gateway.env.example	INTERNAL_SERVICE	Gateway server package
+services/registry-gateway/config/site.example.conf	INTERNAL_SERVICE	Gateway server package
+services/registry-gateway/systemd/soviez-registry-gateway.service	INTERNAL_SERVICE	Gateway server package
+services/registry-gateway/docs/OPERATIONS.md	INTERNAL_SERVICE	Gateway server package
+services/registry-gateway/docs/TROUBLESHOOTING.md	INTERNAL_SERVICE	Gateway server package
+services/registry-gateway/docs/RECOVERY.md	INTERNAL_SERVICE	Gateway server package
+services/registry-gateway/docs/CONFIGURATION.md	INTERNAL_SERVICE	Gateway server package
+services/registry-gateway/docs/UPGRADE.md	INTERNAL_SERVICE	Gateway server package
+services/registry-gateway/docs/INSTALLATION.md	INTERNAL_SERVICE	Gateway server package
+services/registry-gateway/docs/SECURITY.md	INTERNAL_SERVICE	Gateway server package
+services/registry-gateway/nginx/registry.soviez.com.conf	INTERNAL_SERVICE	Gateway server package
+services/registry-gateway/scripts/status.sh	INTERNAL_SERVICE	Gateway server package
+services/registry-gateway/scripts/real-oci-pull-proof.sh	INTERNAL_SERVICE	Gateway server package
+services/registry-gateway/scripts/generate-keypair.sh	INTERNAL_SERVICE	Gateway server package
+services/registry-gateway/src/denial.ts	INTERNAL_SERVICE	Gateway server package
+services/registry-gateway/src/redact.ts	INTERNAL_SERVICE	Gateway server package
+services/registry-gateway/src/mock-upstream.ts	INTERNAL_SERVICE	Gateway server package
+services/registry-gateway/src/graph.ts	INTERNAL_SERVICE	Gateway server package
+services/registry-gateway/src/proxy.ts	INTERNAL_SERVICE	Gateway server package
+services/registry-gateway/src/index.ts	INTERNAL_SERVICE	Gateway server package
+services/registry-gateway/src/config.ts	INTERNAL_SERVICE	Gateway server package
+services/registry-gateway/src/ticket.ts	INTERNAL_SERVICE	Gateway server package
+services/registry-gateway/src/server.ts	INTERNAL_SERVICE	Gateway server package
+services/registry-gateway/src/auth.ts	INTERNAL_SERVICE	Gateway server package
+src/registry/manifest_verify.sh	CLIENT_REQUIRED	client pull
+src/registry/pull_client.sh	CLIENT_REQUIRED	client pull
+src/api/registry_client.sh	CLIENT_REQUIRED	client API
+docs/user/REGISTRY_GATEWAY.md	PUBLIC_DOC	rewrite: remove install pointer
+docs/dev/REGISTRY_GATEWAY.md	INTERNAL_OPERATIONS	server ops pointers — rewrite to client contract
+docs/dev/REGISTRY_GATEWAY_ARCHITECTURE.md	PUBLIC_DOC	architecture may stay high-level client view

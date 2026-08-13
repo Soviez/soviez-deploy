@@ -2,7 +2,7 @@
 
 > **Canonical model:** [`PRIVATE_REGISTRY_AND_PULL_AUTHORIZATION_MODEL.md`](./PRIVATE_REGISTRY_AND_PULL_AUTHORIZATION_MODEL.md)  
 > **Implementer protocol:** [`../dev/PRIVATE_REGISTRY_PROTOCOL.md`](../dev/PRIVATE_REGISTRY_PROTOCOL.md)  
-> **Gateway runbook:** [`../dev/REGISTRY_GATEWAY.md`](../dev/REGISTRY_GATEWAY.md)
+> **Client Gateway contract:** [`../dev/REGISTRY_GATEWAY.md`](../dev/REGISTRY_GATEWAY.md) (server ops are internal)
 
 ---
 
@@ -10,7 +10,7 @@
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
-| **Blob transport** | Dedicated Node gateway (`services/registry-gateway`) | Multi-GB OCI streaming, Range support, no Vercel body/timeout limits |
+| **Blob transport** | Dedicated Node gateway (internal `soviez-registry-gateway/`; **not** published in `soviez-deploy`) | Multi-GB OCI streaming, Range support, no Vercel body/timeout limits |
 | **SaaS role** | Entitlement + ticket issuance only | Next.js never proxies blobs |
 | **Upstream storage** | Docker Hub (pull-only creds in gateway env) | Existing image pipeline; clients never see Hub tokens |
 | **Client credential** | Ed25519 pull ticket, domain `soviez.registry-pull-ticket.v1` | Offline gateway verification; pull-only scope |

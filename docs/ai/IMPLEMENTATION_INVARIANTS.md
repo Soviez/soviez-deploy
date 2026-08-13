@@ -23,3 +23,4 @@
 - Certified WebSocket topology: workers=0, proxy_mode=True, /websocket→8069 loopback
 - workers>0 / gevent publish: NOT_SUPPORTED
 - `--merge-in`: NOT_SUPPORTED (use `--migration-*`)
+- **NEVER publish Soviez internal server-side services inside `Soviez/soviez-deploy`.** Only customer-side deployment/runtime code required by Soviez.sh belongs there. This includes Registry Gateway server implementation, internal control-plane/token/registry services, and internal monitoring/ops components, unless the owner explicitly changes repository policy.

@@ -1,27 +1,29 @@
-# Registry gateway
+# Registry Gateway — public client contract
 
-Dedicated Node streaming OCI gateway for Phase 7 private registry pulls.
+Dedicated Soviez-operated OCI gateway for private ERP image pulls.
 
 **Canonical model:** `docs/ai/PRIVATE_REGISTRY_AND_PULL_AUTHORIZATION_MODEL.md`  
 **Protocol:** `docs/dev/PRIVATE_REGISTRY_PROTOCOL.md`  
-**Source:** `services/registry-gateway/`
+**Client source (this repo):** `src/registry/`, `src/api/registry_client.sh`
 
-## Purpose
+## Repository boundary
 
-- Speaks Docker Registry HTTP API V2 for pull clients
-- Verifies short-lived Soviez pull tickets (Ed25519, `soviez.registry-pull-ticket.v1`) **offline**
-- Proxies only the authorized repository + digest graph to Docker Hub upstream
-- Never exposes upstream credentials to clients
-- Streams blobs without whole-layer buffering; supports Range requests
-- Denies push, delete, catalog, and tag listing
+| Concern | Location |
+|---------|----------|
+| Client ticket request, temporary Docker auth, digest enforce, cleanup | `Soviez/soviez-deploy` (`src/registry/`, etc.) |
+| Gateway **server** implementation | Internal only: local `soviez-registry-gateway/` (not published here) |
 
-## Deployment
+## Client responsibilities
 
-See `services/registry-gateway/README.md` for environment variables, endpoints, and operations (`npm test`, `npm start`).
+- Speak Docker Registry HTTP API V2 as a **pull client** against `SOVIEZ_REGISTRY_GATEWAY_URL`
+- Use short-lived credentials from the SaaS Registry ticket flow
+- Never persist Hub/upstream credentials; never write installer Docker auth into `~/.docker/config.json`
+- Fail closed on digest mismatch / auth failure / gateway unavailable (with clear operator errors)
+- Remain offline-independent for already-local images and offline-bundle updates
 
-## Security
+## Server responsibilities (internal — not in this repo)
 
-- Hub pull-only token in gateway env only (`SOVIEZ_UPSTREAM_REGISTRY_USER`, `SOVIEZ_UPSTREAM_REGISTRY_TOKEN`)
-- Ticket public keys in `SOVIEZ_REGISTRY_TICKET_PUBLIC_KEYS_JSON`
-- No Supabase or SaaS business logic in this service
-- In-memory session digest graph only — not a shared blob cache
+- Offline ticket verification, OCI proxy, upstream Hub auth, rate limits, service health
+- Dockerfile / Compose / install scripts / Nginx / host secrets
+
+Do not re-publish server implementation into `Soviez/soviez-deploy`.

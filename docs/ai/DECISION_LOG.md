@@ -270,3 +270,14 @@ Installer **`0.24.5.2-postcert-corr1`**. Evidence: `docs/evidence/post-cert-disc
 - Local ops: `soviez-registry-gateway/`
 - Artifact: `0.24.5.3-registry-gateway` / `68ab59972d84d34f38c43862ca28946d3df3da5707fefa970230bd43e1da3460`
 - Commercial Production Release: NOT AUTHORIZED
+
+## D131 — Public deploy repository boundary correction
+
+- **Policy:** `Soviez/soviez-deploy` = client-side lifecycle repository only
+- **Removed from public main:** `services/registry-gateway/` (Gateway **server** package)
+- **Retained public:** client Registry consumer (`src/registry/`, `src/api/registry_client.sh`) + customer-facing Registry docs/protocol
+- **Canonical Gateway source:** local `soviez-registry-gateway/` (no private Git remote yet; no byte-sync into public deploy)
+- **AI invariant:** never publish internal server-side services into `soviez-deploy`
+- Artifact bytes unchanged: `0.24.5.3-registry-gateway` / `68ab59972d84d34f38c43862ca28946d3df3da5707fefa970230bd43e1da3460`
+- Evidence: `docs/evidence/public-deploy-boundary-correction/`
+- Commercial Production Release: NOT AUTHORIZED; Gateway not deployed by this correction

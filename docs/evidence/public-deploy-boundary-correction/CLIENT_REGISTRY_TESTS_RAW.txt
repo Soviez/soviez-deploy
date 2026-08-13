@@ -1,0 +1,115 @@
+===== tests/security/test_phase24_docker_auth_cleanup.sh =====
+OK test_phase24_docker_auth_cleanup
+EXIT:0
+===== tests/security/test_phase24_registry_lockdown.sh =====
+OK test_phase24_registry_lockdown
+EXIT:0
+===== tests/unit/test_digest.sh =====
+test_digest: PASS
+EXIT:0
+OK docs_validate
+DOCS_VALIDATE_EXIT:0
+===== tests/security/test_phase20_static_forbidden.sh =====
+test_phase20_static_forbidden: PASS
+EXIT:0
+===== tests/unit/test_phase17_migration_unit.sh =====
+SOURCE DISCOVERY — COMPLETE
+DESTINATION BOOTSTRAP — N/A
+MIGRATION PAIR — N/A
+READINESS — N/A
+NO DATA TRANSFER STARTED
+SOURCE REMAINS ACTIVE
+MIGRATION TOKEN NOT CONSUMED
+DESTINATION PRODUCTION NOT ACTIVATED
+OK: discovery completed
+OK: exact production
+OK: no transfer
+OK: token not consumed
+OK: no maintenance
+OK: missing target denied
+OK: wrong target denied
+OK: stage target denied
+OK: stages unselected
+OK: non-sellable
+OK: non-slot
+OK: not activated
+OK: boot token false
+OK: unsupported OS blocked
+OK: arm64 blocked
+OK: ubuntu 24.04
+OK: latest refused
+OK: bad signature refused
+OK: pair trusted
+OK: pair token false
+OK: pair no transfer
+OK: dest not activated
+OK: bootstrap code replay denied
+OK: fingerprint mismatch denied
+OK: mTLS certs real
+OK: stage select
+OK: expired stage denied
+OK: stage unselect
+SOURCE DISCOVERY — COMPLETE
+DESTINATION BOOTSTRAP — COMPLETE
+MIGRATION PAIR — TRUSTED
+READINESS — PASS
+NO DATA TRANSFER STARTED
+SOURCE REMAINS ACTIVE
+MIGRATION TOKEN NOT CONSUMED
+DESTINATION PRODUCTION NOT ACTIVATED
+OK: readiness PASS
+OK: ready token false
+OK: dns unchanged
+OK: 25% margin
+SOURCE DISCOVERY — COMPLETE
+DESTINATION BOOTSTRAP — N/A
+MIGRATION PAIR — N/A
+READINESS — N/A
+NO DATA TRANSFER STARTED
+SOURCE REMAINS ACTIVE
+MIGRATION TOKEN NOT CONSUMED
+DESTINATION PRODUCTION NOT ACTIVATED
+SOURCE DISCOVERY — COMPLETE
+DESTINATION BOOTSTRAP — COMPLETE
+MIGRATION PAIR — TRUSTED
+READINESS — WARNING
+NO DATA TRANSFER STARTED
+SOURCE REMAINS ACTIVE
+MIGRATION TOKEN NOT CONSUMED
+DESTINATION PRODUCTION NOT ACTIVATED
+OK: readiness WARNING on old backup
+SOURCE DISCOVERY — COMPLETE
+DESTINATION BOOTSTRAP — N/A
+MIGRATION PAIR — N/A
+READINESS — N/A
+NO DATA TRANSFER STARTED
+SOURCE REMAINS ACTIVE
+MIGRATION TOKEN NOT CONSUMED
+DESTINATION PRODUCTION NOT ACTIVATED
+SOURCE DISCOVERY — COMPLETE
+DESTINATION BOOTSTRAP — COMPLETE
+MIGRATION PAIR — TRUSTED
+READINESS — BLOCKED
+NO DATA TRANSFER STARTED
+SOURCE REMAINS ACTIVE
+MIGRATION TOKEN NOT CONSUMED
+DESTINATION PRODUCTION NOT ACTIVATED
+OK: readiness BLOCKED capacity
+OK: offline export
+OK: offline replay denied
+OK: abort token false
+OK: abort dest false
+OK: abort idempotent
+OK: trust revoked
+OK: clock skew blocked
+SOURCE DISCOVERY — COMPLETE
+DESTINATION BOOTSTRAP — N/A
+MIGRATION PAIR — N/A
+READINESS — N/A
+NO DATA TRANSFER STARTED
+SOURCE REMAINS ACTIVE
+MIGRATION TOKEN NOT CONSUMED
+DESTINATION PRODUCTION NOT ACTIVATED
+OK: cross-license denied
+phase17 unit: PASS (42 assertions)
+EXIT:0

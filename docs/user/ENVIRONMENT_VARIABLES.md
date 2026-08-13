@@ -12,7 +12,7 @@ Focus: public/configurable variables. Test/certification inject flags are **not*
 | `SOVIEZ_SECRETS_DIR` | `/etc/soviez/secrets` | Secrets |
 | `SOVIEZ_TENANT_DIR` | `/var/soviez/tenant` | Tenant runtime |
 | `SOVIEZ_SAAS_BASE_URL` | `https://app.soviez.com` | SaaS API |
-| `SOVIEZ_REGISTRY_GATEWAY_URL` | `https://registry.soviez.com` | Registry gateway |
+| `SOVIEZ_REGISTRY_GATEWAY_URL` | `https://registry.soviez.com` | Registry gateway base URL (client) |
 | `SOVIEZ_STAGES_DIR` | `/var/soviez/stages` | Stages |
 | `SOVIEZ_TEST_MODE` | `0` | **Must be 0** on customer hosts |
 
@@ -22,7 +22,7 @@ Focus: public/configurable variables. Test/certification inject flags are **not*
 |------|-------|
 | `SOVIEZ_DEVICE_CREDENTIAL` | Secret |
 | `SOVIEZ_ACTIVATION_KEY` / `SOVIEZ_LICENSE_KEY` | Secret |
-| `SOVIEZ_REGISTRY_PASSWORD` | Secret |
+| `SOVIEZ_REGISTRY_PASSWORD` | Short-lived **client** pull credential from ticket exchange (not Hub PAT) |
 | `SOVIEZ_BACKUP_PASSPHRASE` | Prefer `SOVIEZ_BACKUP_PASSPHRASE_FILE` |
 | `SOVIEZ_PG_ADMIN_PASSWORD` / `SOVIEZ_DB_PASSWORD` | Secret |
 
@@ -47,6 +47,14 @@ Focus: public/configurable variables. Test/certification inject flags are **not*
 | `SOVIEZ_S5_ENFORCE` | `0` | Force S5 gates in lab |
 | `SOVIEZ_BACKUP_DISABLE_ENCRYPTION` | `0` | Weakens local backups |
 | `SOVIEZ_LOG_LEVEL` | `info` | Logging |
+
+## Forbidden on customer hosts / in this repository
+
+Do **not** configure or document as client variables:
+
+- `SOVIEZ_UPSTREAM_REGISTRY_USER` / `SOVIEZ_UPSTREAM_REGISTRY_TOKEN` (Gateway **server** Hub credentials)
+- Gateway signing **private** keys / ticket issuer private keys
+- Internal Gateway host secrets (`/etc/soviez-registry-gateway/…`)
 
 ## Forbidden in production
 

@@ -44,6 +44,6 @@ local-filestore/
 .vscode/
 *.swp
 
-# Service build artifacts (rebuildable)
+# Service build artifacts (defensive — do not re-add internal services here)
 services/*/dist/
 services/*/node_modules/
