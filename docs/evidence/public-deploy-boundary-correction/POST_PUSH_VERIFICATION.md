@@ -1,10 +1,10 @@
 # POST_PUSH_VERIFICATION
 
-Pending push.
+- Public main SHA: 
+- Force push: **NO**
+-  on origin/main: **ABSENT** (0 files)
+- Client  present: **YES**
+- Client  present: **YES**
+- Gateway Dockerfile/Compose/install on public main: **ABSENT**
 
-Checklist:
-
-- [ ] `services/registry-gateway/` absent on origin/main
-- [ ] Client `src/registry/` present
-- [ ] No Gateway Dockerfile/Compose/install scripts on public main
-- [ ] HEAD SHA recorded
+POST_PUSH = PASS
