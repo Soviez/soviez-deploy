@@ -1,0 +1,166 @@
+{
+  "schema_version": "1.0.0",
+  "ruleset_version": "s3-0.24.3",
+  "rules": [
+    {
+      "id": "SDB001_COPY_PROGRAM",
+      "category": "sql_host_exec",
+      "severity": "CRITICAL",
+      "confidence": "high",
+      "pattern": "(?i)COPY\\s+.*\\s+(FROM|TO)\\s+PROGRAM|pg_execute_server_program",
+      "models": ["ir.actions.server", "ir.cron", "base.automation", "ir.config_parameter", "ir.ui.view"],
+      "rationale": "PostgreSQL server-side program execution",
+      "remediation": "Preserve evidence; do not execute; use Incident/S4 path"
+    },
+    {
+      "id": "SDB002_OS_SYSTEM",
+      "category": "python_os_exec",
+      "severity": "HIGH",
+      "confidence": "high",
+      "pattern": "(?i)\\bos\\.system\\s*\\(|\\bos\\.popen\\s*\\(|\\bos\\.spawn",
+      "models": ["ir.actions.server", "ir.cron", "base.automation", "ir.ui.view"],
+      "rationale": "Python OS process spawn",
+      "remediation": "Review server action; quarantine if untrusted"
+    },
+    {
+      "id": "SDB003_SUBPROCESS",
+      "category": "python_os_exec",
+      "severity": "HIGH",
+      "confidence": "medium",
+      "pattern": "(?i)\\bsubprocess\\.(Popen|call|run|check_output|check_call)\\s*\\(|\\bPopen\\s*\\(",
+      "models": ["ir.actions.server", "ir.cron", "base.automation", "ir.ui.view"],
+      "rationale": "subprocess invocation in technical record",
+      "remediation": "Confirm legitimacy; otherwise treat as host-exec risk"
+    },
+    {
+      "id": "SDB004_SHELL_EXEC",
+      "category": "shell",
+      "severity": "CRITICAL",
+      "confidence": "high",
+      "pattern": "(?i)(/bin/(ba)?sh\\s+-c|bash\\s+-c|sh\\s+-c|/dev/tcp/|\\bnc\\s+-e\\b|\\bnetcat\\b|\\bsocat\\b)",
+      "models": ["ir.actions.server", "ir.cron", "base.automation", "ir.config_parameter", "ir.ui.view"],
+      "rationale": "Shell / reverse-shell constructs",
+      "remediation": "CRITICAL — preserve evidence; no auto-delete"
+    },
+    {
+      "id": "SDB005_DOWNLOADER",
+      "category": "downloader",
+      "severity": "HIGH",
+      "confidence": "high",
+      "pattern": "(?i)(curl\\s+[^\\n]*\\|\\s*(ba)?sh|wget\\s+[^\\n]*\\|\\s*(ba)?sh|curl\\s+.*(-O|--output).*chmod)",
+      "models": ["ir.actions.server", "ir.cron", "base.automation", "ir.config_parameter", "ir.ui.view"],
+      "rationale": "Download-and-execute pipeline",
+      "remediation": "Treat as compromise indicator"
+    },
+    {
+      "id": "SDB006_REVERSE_SHELL",
+      "category": "reverse_shell",
+      "severity": "CRITICAL",
+      "confidence": "high",
+      "pattern": "(?i)(bash\\s+-i\\s+>&\\s+/dev/tcp/|python[23]?\\s+-c\\s+.*socket\\.connect|mkfifo\\s+/tmp/)",
+      "models": ["ir.actions.server", "ir.cron", "base.automation", "ir.ui.view"],
+      "rationale": "Reverse shell payload",
+      "remediation": "CRITICAL — Incident Mode recommended"
+    },
+    {
+      "id": "SDB007_XMRIG",
+      "category": "miner",
+      "severity": "CRITICAL",
+      "confidence": "high",
+      "pattern": "(?i)\\bxmrig\\b|minerd\\b|cpuminer\\b",
+      "models": ["ir.actions.server", "ir.cron", "base.automation", "ir.config_parameter", "ir.ui.view"],
+      "rationale": "Known miner binary name",
+      "remediation": "CRITICAL miner indicator"
+    },
+    {
+      "id": "SDB008_STRATUM",
+      "category": "miner",
+      "severity": "CRITICAL",
+      "confidence": "high",
+      "pattern": "(?i)stratum\\+tcp://|stratum\\+ssl://|mining\\.pool|pool\\.[a-z0-9.-]+/(xmr|eth|btc)",
+      "models": ["ir.actions.server", "ir.cron", "base.automation", "ir.config_parameter", "ir.ui.view"],
+      "rationale": "Mining pool / stratum endpoint",
+      "remediation": "CRITICAL miner networking"
+    },
+    {
+      "id": "SDB009_OBFUSCATED_PAYLOAD",
+      "category": "obfuscation",
+      "severity": "HIGH",
+      "confidence": "medium",
+      "pattern": "(?i)(base64\\.b64decode\\s*\\(.*\\)\\s*;?\\s*exec|exec\\s*\\(\\s*base64\\.b64decode|codecs\\.decode\\(.*hex.*\\).*exec|zlib\\.decompress\\(.*\\).*exec)",
+      "models": ["ir.actions.server", "ir.cron", "base.automation", "ir.ui.view"],
+      "rationale": "Decode-then-execute obfuscation chain",
+      "remediation": "HIGH — review and preserve"
+    },
+    {
+      "id": "SDB010_EXTERNAL_PAYLOAD_URL",
+      "category": "remote_endpoint",
+      "severity": "MEDIUM",
+      "confidence": "low",
+      "pattern": "(?i)https?://[^\\s\"']+\\.(sh|py|elf|bin)(\\?|$)",
+      "models": ["ir.actions.server", "ir.cron", "base.automation", "ir.config_parameter", "ir.ui.view"],
+      "rationale": "Remote script/binary URL (context-dependent)",
+      "remediation": "REVIEW unless IOC-matched"
+    },
+    {
+      "id": "SDB011_DEV_SHM_EXEC",
+      "category": "staging",
+      "severity": "HIGH",
+      "confidence": "high",
+      "pattern": "(?i)/dev/shm/|/var/tmp/[^\\s\"']+\\s*;?\\s*chmod\\s+\\+x|/tmp/[^\\s\"']+\\s*;?\\s*chmod\\s+\\+x",
+      "models": ["ir.actions.server", "ir.cron", "base.automation", "ir.ui.view"],
+      "rationale": "Executable staging in volatile paths",
+      "remediation": "HIGH persistence staging"
+    },
+    {
+      "id": "SDB012_LD_PRELOAD",
+      "category": "injection",
+      "severity": "CRITICAL",
+      "confidence": "high",
+      "pattern": "(?i)LD_PRELOAD=|/etc/ld\\.so\\.preload",
+      "models": ["ir.actions.server", "ir.cron", "base.automation", "ir.config_parameter", "ir.ui.view"],
+      "rationale": "Library preload injection",
+      "remediation": "CRITICAL host injection"
+    },
+    {
+      "id": "SDB013_SYSTEMD_PERSISTENCE",
+      "category": "persistence",
+      "severity": "HIGH",
+      "confidence": "medium",
+      "pattern": "(?i)systemctl\\s+(enable|start).*\\.service|/etc/systemd/system/[^\\s\"']+\\.service",
+      "models": ["ir.actions.server", "ir.cron", "base.automation"],
+      "rationale": "Systemd unit installation from technical record",
+      "remediation": "Review persistence intent"
+    },
+    {
+      "id": "SDB014_CRON_PERSISTENCE",
+      "category": "persistence",
+      "severity": "HIGH",
+      "confidence": "medium",
+      "pattern": "(?i)(crontab\\s+-e|/etc/cron\\.(d|daily|hourly)/|echo\\s+['\\\"].*\\*\\s+\\*.*>>\\s*/etc/cron)",
+      "models": ["ir.actions.server", "ir.cron", "base.automation"],
+      "rationale": "Cron persistence installation",
+      "remediation": "Review cron mutation"
+    },
+    {
+      "id": "SDB015_SERVER_FILE_ACCESS",
+      "category": "sql_files",
+      "severity": "HIGH",
+      "confidence": "high",
+      "pattern": "(?i)pg_read_server_files|pg_write_server_files|COPY\\s+.*\\s+FROM\\s+['\\\"]/",
+      "models": ["ir.actions.server", "ir.cron", "base.automation", "ir.config_parameter"],
+      "rationale": "PostgreSQL server filesystem privilege abuse",
+      "remediation": "HIGH — inspect role/grants"
+    },
+    {
+      "id": "SDB016_EVAL_EXEC",
+      "category": "python_dynamic",
+      "severity": "MEDIUM",
+      "confidence": "low",
+      "pattern": "(?i)(?<!['\\\"\\w])(eval|exec)\\s*\\(",
+      "models": ["ir.actions.server", "ir.cron", "base.automation"],
+      "rationale": "Dynamic eval/exec — often legitimate in Odoo; escalate if combined with other rules",
+      "remediation": "INFO/MEDIUM unless combined with OS/network primitives"
+    }
+  ]
+}

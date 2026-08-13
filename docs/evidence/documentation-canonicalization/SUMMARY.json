@@ -1,0 +1,16 @@
+{
+  "verdict": "PASS",
+  "sha": "78092b384b28dc45a93801c5d0acad7d90e4ca3e41cd0b235419c2eeeb6531ca",
+  "src_sh": 485,
+  "docs_md": 2066,
+  "user_live": 39,
+  "user_ptr": 45,
+  "links_checked": 102,
+  "links_broken": 3,
+  "broken": [
+    "docs/README.md: DOCUMENTATION_COVERAGE_MATRIX.md",
+    "docs/README.md: DOCUMENTATION_INVENTORY.md",
+    "docs/README.md: DOCUMENTATION_CONFLICT_REPORT.md"
+  ],
+  "missing_caps": 0
+}

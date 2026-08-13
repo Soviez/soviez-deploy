@@ -1,0 +1,9 @@
+=== BASELINE NOTE ===
+repo=/Volumes/PortableSSD/soviez-project/soviez-saas
+branch=main
+commit=2f2f13c655ac42aa976764db56d939bf60a40094
+working_tree_at_start=clean
+phase3_commits=none (no commit performed)
+prior_product_stripe_e2e_fixtures=absent
+test_script_added=npm run test:commercial
+typecheck_script_added=npm run typecheck

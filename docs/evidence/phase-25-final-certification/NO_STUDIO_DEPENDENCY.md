@@ -1,0 +1,3 @@
+# NO_STUDIO_DEPENDENCY
+required_certified_features_without_studio=PASS
+studio_not_required_for_core_flows=YES

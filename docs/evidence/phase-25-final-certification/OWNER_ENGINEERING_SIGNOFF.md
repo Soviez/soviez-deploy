@@ -1,0 +1,4 @@
+# OWNER_ENGINEERING_SIGNOFF
+OWNER_ENGINEERING_SIGNOFF=PENDING_FINAL_RESULT_ACK
+fabricated_signature=NO
+authorization_scope=engineering_certification_only

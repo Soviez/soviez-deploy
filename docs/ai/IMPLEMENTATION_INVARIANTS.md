@@ -1,0 +1,25 @@
+# Implementation Invariants
+
+- No future Odoo upstream merge/rebase goal
+- Preserve Odoo 18 third-party addon compatibility
+- No hidden telemetry
+- No business-data egress
+- Runtime independent of SaaS
+- Support expiry does not stop ERP
+- Stage entitlement expiry does not stop existing Stage
+- Backup/recovery always available locally
+- Security fail-closed
+- Exact update target (no floating latest)
+- No global Docker prune
+- No blind firewall reset
+- PG app role never SUPERUSER / CREATEROLE / CREATEDB / REPLICATION / BYPASSRLS
+- Public PG prohibited
+- Public Odoo backend (8069/8071/8072) prohibited
+- Webmin/Virtualmin never installed by Soviez.sh
+- No automatic source purge
+- ZATCA historical immutability
+- No unsafe apt lock killing (wait-or-fail)
+- LOCAL_ONLY ≠ DR
+- Certified WebSocket topology: workers=0, proxy_mode=True, /websocket→8069 loopback
+- workers>0 / gevent publish: NOT_SUPPORTED
+- `--merge-in`: NOT_SUPPORTED (use `--migration-*`)

@@ -1,0 +1,186 @@
+npm warn Unknown env config "devdir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+   ▲ Next.js 15.5.19
+   - Environments: .env.production.local, .env.local, .env.production
+
+   Creating an optimized production build ...
+<w> [webpack.cache.PackFileCacheStrategy] Serializing big strings (106kiB) impacts deserialization performance (consider using Buffer instead and decode when needed)
+<w> [webpack.cache.PackFileCacheStrategy] Serializing big strings (250kiB) impacts deserialization performance (consider using Buffer instead and decode when needed)
+ ✓ Compiled successfully in 5.2s
+   Linting and checking validity of types ...
+   Collecting page data ...
+   Generating static pages (0/116) ...
+   Generating static pages (29/116) 
+   Generating static pages (58/116) 
+   Generating static pages (87/116) 
+[settings] system_settings decrypt failed: CRITICAL: Runtime decryption failure. Key rotation or env variable mismatch. — using in-memory safe defaults
+[settings] system_settings decrypt failed: CRITICAL: Runtime decryption failure. Key rotation or env variable mismatch. — using in-memory safe defaults
+[settings] system_settings decrypt failed: CRITICAL: Runtime decryption failure. Key rotation or env variable mismatch. — using in-memory safe defaults
+[settings] system_settings decrypt failed: CRITICAL: Runtime decryption failure. Key rotation or env variable mismatch. — using in-memory safe defaults
+[settings] system_settings decrypt failed: CRITICAL: Runtime decryption failure. Key rotation or env variable mismatch. — using in-memory safe defaults
+[settings] system_settings decrypt failed: CRITICAL: Runtime decryption failure. Key rotation or env variable mismatch. — using in-memory safe defaults
+[settings] system_settings decrypt failed: CRITICAL: Runtime decryption failure. Key rotation or env variable mismatch. — using in-memory safe defaults
+[settings] system_settings decrypt failed: CRITICAL: Runtime decryption failure. Key rotation or env variable mismatch. — using in-memory safe defaults
+[settings] system_settings decrypt failed: CRITICAL: Runtime decryption failure. Key rotation or env variable mismatch. — using in-memory safe defaults
+[settings] system_settings decrypt failed: CRITICAL: Runtime decryption failure. Key rotation or env variable mismatch. — using in-memory safe defaults
+[settings] system_settings decrypt failed: CRITICAL: Runtime decryption failure. Key rotation or env variable mismatch. — using in-memory safe defaults
+[settings] system_settings decrypt failed: CRITICAL: Runtime decryption failure. Key rotation or env variable mismatch. — using in-memory safe defaults
+[settings] system_settings decrypt failed: CRITICAL: Runtime decryption failure. Key rotation or env variable mismatch. — using in-memory safe defaults
+[settings] system_settings decrypt failed: CRITICAL: Runtime decryption failure. Key rotation or env variable mismatch. — using in-memory safe defaults
+[settings] system_settings decrypt failed: CRITICAL: Runtime decryption failure. Key rotation or env variable mismatch. — using in-memory safe defaults
+[settings] system_settings decrypt failed: CRITICAL: Runtime decryption failure. Key rotation or env variable mismatch. — using in-memory safe defaults
+[settings] system_settings decrypt failed: CRITICAL: Runtime decryption failure. Key rotation or env variable mismatch. — using in-memory safe defaults
+[settings] system_settings decrypt failed: CRITICAL: Runtime decryption failure. Key rotation or env variable mismatch. — using in-memory safe defaults
+[settings] system_settings decrypt failed: CRITICAL: Runtime decryption failure. Key rotation or env variable mismatch. — using in-memory safe defaults
+[settings] system_settings decrypt failed: CRITICAL: Runtime decryption failure. Key rotation or env variable mismatch. — using in-memory safe defaults
+[settings] system_settings decrypt failed: CRITICAL: Runtime decryption failure. Key rotation or env variable mismatch. — using in-memory safe defaults
+[settings] system_settings decrypt failed: CRITICAL: Runtime decryption failure. Key rotation or env variable mismatch. — using in-memory safe defaults
+[settings] system_settings decrypt failed: CRITICAL: Runtime decryption failure. Key rotation or env variable mismatch. — using in-memory safe defaults
+[settings] system_settings decrypt failed: CRITICAL: Runtime decryption failure. Key rotation or env variable mismatch. — using in-memory safe defaults
+[settings] system_settings decrypt failed: CRITICAL: Runtime decryption failure. Key rotation or env variable mismatch. — using in-memory safe defaults
+[settings] system_settings decrypt failed: CRITICAL: Runtime decryption failure. Key rotation or env variable mismatch. — using in-memory safe defaults
+ ✓ Generating static pages (116/116)
+   Finalizing page optimization ...
+   Collecting build traces ...
+
+Route (app)                                       Size  First Load JS
+┌ ƒ /                                            160 B         235 kB
+├ ƒ /_not-found                                   1 kB         103 kB
+├ ƒ /admin                                     41.8 kB         280 kB
+├ ƒ /admin/partners                            3.79 kB         220 kB
+├ ƒ /admin/sme-requests                        3.84 kB         203 kB
+├ ƒ /admin/users/[id]                          3.16 kB         202 kB
+├ ƒ /api/account/billing                         354 B         103 kB
+├ ƒ /api/admin/addons                            354 B         103 kB
+├ ƒ /api/admin/addons/prices                     354 B         103 kB
+├ ƒ /api/admin/analytics                         354 B         103 kB
+├ ƒ /api/admin/analytics/addons                  354 B         103 kB
+├ ƒ /api/admin/audit-log                         354 B         103 kB
+├ ƒ /api/admin/changelogs                        354 B         103 kB
+├ ƒ /api/admin/coupons                           354 B         103 kB
+├ ƒ /api/admin/customers                         354 B         103 kB
+├ ƒ /api/admin/failed-emails                     354 B         103 kB
+├ ƒ /api/admin/installation/comment              354 B         103 kB
+├ ƒ /api/admin/installation/comments             354 B         103 kB
+├ ƒ /api/admin/installation/requests             354 B         103 kB
+├ ƒ /api/admin/license/confirm-delete            354 B         103 kB
+├ ƒ /api/admin/license/request-delete            354 B         103 kB
+├ ƒ /api/admin/licenses/[id]                     354 B         103 kB
+├ ƒ /api/admin/notifications                     354 B         103 kB
+├ ƒ /api/admin/orders                            354 B         103 kB
+├ ƒ /api/admin/orders/[id]/breakdown             354 B         103 kB
+├ ƒ /api/admin/partner-applications              354 B         103 kB
+├ ƒ /api/admin/partners                          354 B         103 kB
+├ ƒ /api/admin/regional-pricing                  354 B         103 kB
+├ ƒ /api/admin/regional-pricing/[countryCode]    354 B         103 kB
+├ ƒ /api/admin/settings                          354 B         103 kB
+├ ƒ /api/admin/startup-requests                  354 B         103 kB
+├ ƒ /api/admin/support-tickets                   354 B         103 kB
+├ ƒ /api/admin/users                             354 B         103 kB
+├ ƒ /api/admin/users/[id]                        354 B         103 kB
+├ ƒ /api/admin/users/delete                      354 B         103 kB
+├ ƒ /api/admin/users/reset-password              354 B         103 kB
+├ ƒ /api/auth/confirm                            354 B         103 kB
+├ ƒ /api/auth/forgot-password                    354 B         103 kB
+├ ƒ /api/auth/login                              354 B         103 kB
+├ ƒ /api/auth/magic-link                         354 B         103 kB
+├ ƒ /api/auth/register                           354 B         103 kB
+├ ƒ /api/auth/resend-email-change                354 B         103 kB
+├ ƒ /api/auth/resend-verification                354 B         103 kB
+├ ƒ /api/auth/verify-signup                      354 B         103 kB
+├ ƒ /api/chat                                    354 B         103 kB
+├ ƒ /api/checkout                                354 B         103 kB
+├ ƒ /api/checkout/addon                          354 B         103 kB
+├ ƒ /api/checkout/complete                       354 B         103 kB
+├ ƒ /api/checkout/session                        354 B         103 kB
+├ ƒ /api/checkout/support-subscription           354 B         103 kB
+├ ƒ /api/cli-script                              354 B         103 kB
+├ ƒ /api/coupons/preview                         354 B         103 kB
+├ ƒ /api/coupons/validate                        354 B         103 kB
+├ ƒ /api/cron/process-email-queue                354 B         103 kB
+├ ƒ /api/cron/startup-program-drip               354 B         103 kB
+├ ƒ /api/dashboard/invoices                      354 B         103 kB
+├ ƒ /api/dashboard/partner-milestones            354 B         103 kB
+├ ƒ /api/dashboard/partner-milestones/fund       354 B         103 kB
+├ ƒ /api/dashboard/partner-milestones/release    354 B         103 kB
+├ ƒ /api/dashboard/partner-profile               354 B         103 kB
+├ ƒ /api/dashboard/partner-projects              354 B         103 kB
+├ ƒ /api/dashboard/privacy/delete-account        354 B         103 kB
+├ ƒ /api/dashboard/privacy/export                354 B         103 kB
+├ ƒ /api/dashboard/purchases                     354 B         103 kB
+├ ƒ /api/dashboard/server-instances              354 B         103 kB
+├ ƒ /api/dashboard/support-subscription          354 B         103 kB
+├ ƒ /api/dashboard/support-tickets               354 B         103 kB
+├ ƒ /api/dashboard/support-tickets/comment       354 B         103 kB
+├ ƒ /api/installation                            354 B         103 kB
+├ ƒ /api/installation/comment                    354 B         103 kB
+├ ƒ /api/license/generate                        354 B         103 kB
+├ ƒ /api/license/migrate                         354 B         103 kB
+├ ƒ /api/license/migrate/begin                   354 B         103 kB
+├ ƒ /api/license/migrate/cancel                  354 B         103 kB
+├ ƒ /api/license/verify-deactivation-receipt     354 B         103 kB
+├ ƒ /api/licenses/[id]/alias                     354 B         103 kB
+├ ƒ /api/licenses/migrate/cancel                 354 B         103 kB
+├ ƒ /api/notifications                           354 B         103 kB
+├ ƒ /api/public/captcha                          354 B         103 kB
+├ ƒ /api/public/partners                         354 B         103 kB
+├ ƒ /api/public/storefront                       354 B         103 kB
+├ ƒ /api/purchases/pending                       354 B         103 kB
+├ ƒ /api/startup-program/send-otp                354 B         103 kB
+├ ƒ /api/startup-program/submit                  354 B         103 kB
+├ ƒ /api/startup-program/verify-otp              354 B         103 kB
+├ ƒ /api/subscription/cancel                     354 B         103 kB
+├ ƒ /api/subscription/upgrade                    354 B         103 kB
+├ ƒ /api/time                                    354 B         103 kB
+├ ƒ /api/verification/send                       354 B         103 kB
+├ ƒ /api/webhooks                                354 B         103 kB
+├ ƒ /auth/callback                               354 B         103 kB
+├ ƒ /change-log                                  143 B         190 kB
+├ ƒ /change-log/[version]                        142 B         190 kB
+├ ƒ /checkout                                    354 B         103 kB
+├ ƒ /checkout/complete                         1.76 kB         104 kB
+├ ƒ /dashboard                                 48.6 kB         286 kB
+├ ƒ /dashboard/installations                     354 B         103 kB
+├ ƒ /dashboard/partner                          8.9 kB         211 kB
+├ ƒ /dashboard/post-project                      354 B         103 kB
+├ ƒ /dashboard/support                           354 B         103 kB
+├ ƒ /docs                                      1.49 kB         125 kB
+├ ƒ /docs/accounting                           1.49 kB         125 kB
+├ ● /docs/apps/[slug]                            354 B         103 kB
+├   ├ /docs/apps/pos
+├   ├ /docs/apps/purchase
+├   ├ /docs/apps/manufacturing
+├   └ [+5 more paths]
+├ ƒ /docs/apps/studio                          1.49 kB         125 kB
+├ ƒ /docs/help                                 12.5 kB         206 kB
+├ ƒ /docs/inventory                            1.49 kB         125 kB
+├ ƒ /docs/sales-crm                            1.49 kB         125 kB
+├ ƒ /docs/soviez-sh                            1.49 kB         125 kB
+├ ƒ /docs/startup-program                      1.49 kB         125 kB
+├ ƒ /docs/system-requirements                  4.74 kB         129 kB
+├ ƒ /docs/userguide                              354 B         103 kB
+├ ƒ /forgot-password                           4.57 kB         146 kB
+├ ƒ /login                                     5.57 kB         221 kB
+├ ƒ /partners                                  9.11 kB         207 kB
+├ ƒ /partners/apply                            5.27 kB         199 kB
+├ ƒ /philosophy                                3.68 kB         188 kB
+├ ƒ /pricing                                     159 B         235 kB
+├ ƒ /privacy                                     141 B         188 kB
+├ ƒ /register                                  8.24 kB         224 kB
+├ ƒ /reset-password                            1.79 kB         208 kB
+├ ƒ /sh-landing                                3.54 kB         122 kB
+├ ƒ /signup                                      455 B         103 kB
+├ ƒ /startup-program                           12.4 kB         206 kB
+├ ƒ /support                                   6.41 kB         220 kB
+├ ƒ /terms                                       141 B         188 kB
+└ ƒ /verify                                    6.56 kB         204 kB
++ First Load JS shared by all                   102 kB
+  ├ chunks/1255-b8cf77ab14370e57.js              46 kB
+  ├ chunks/4bd1b696-100b9d70ed4e49c1.js        54.2 kB
+  └ other shared chunks (total)                2.09 kB
+
+
+ƒ Middleware                                   92.5 kB
+
+●  (SSG)      prerendered as static HTML (uses generateStaticParams)
+ƒ  (Dynamic)  server-rendered on demand
+

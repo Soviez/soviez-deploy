@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SoviezNewOperationState",
+  "description": "Conceptual schema for --new operation state.json",
+  "type": "object",
+  "required": ["operation_id", "kind", "state", "created_at", "updated_at"],
+  "properties": {
+    "operation_id": { "type": "string", "format": "uuid" },
+    "kind": { "enum": ["new"] },
+    "state": {
+      "enum": [
+        "created", "preflight", "waiting_for_connection_consent",
+        "device_authorization_pending", "device_authorized", "slot_reserved",
+        "release_resolved", "image_pull_authorized", "image_pulled",
+        "tenant_identity_created", "database_provisioned", "container_started",
+        "domain_pending", "waiting_for_dns", "ssl_pending", "instance_provisioned",
+        "fingerprint_bound", "waiting_for_activation_method", "license_issued",
+        "activation_pending", "activated", "manual_activation_pending", "validating",
+        "completed", "completed_activation_pending", "canceled", "failed_retryable",
+        "recovery_required", "failed_terminal"
+      ]
+    },
+    "slot_id": { "type": "string" },
+    "device_id": { "type": "string" },
+    "release_id": { "type": "string" },
+    "digest": { "type": "string" },
+    "image_ref": { "type": "string" },
+    "pull_session_id": { "type": "string" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "meta": { "type": "object", "additionalProperties": true },
+    "device_auth": { "type": "object", "additionalProperties": true }
+  },
+  "additionalProperties": false
+}

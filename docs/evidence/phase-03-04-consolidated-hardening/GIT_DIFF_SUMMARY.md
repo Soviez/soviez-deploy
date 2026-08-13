@@ -1,0 +1,10 @@
+ package-lock.json                       |   7 +
+ package.json                            |  10 +
+ src/app/api/license/generate/route.ts   |  10 +
+ src/lib/admin-provisioning.ts           |  27 +++
+ src/lib/fulfill-checkout-session.ts     |   9 +
+ src/lib/stripe-dispute-pipeline.ts      |  21 ++
+ src/lib/stripe-refund-pipeline.ts       |  11 +
+ src/lib/stripe-subscription-pipeline.ts |  10 +
+ src/types/database.ts                   | 362 ++++++++++++++++++++++++++++++++
+ 9 files changed, 467 insertions(+)

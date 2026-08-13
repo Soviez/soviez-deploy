@@ -1,0 +1,1 @@
+Outbound ZATCA endpoint blocked.

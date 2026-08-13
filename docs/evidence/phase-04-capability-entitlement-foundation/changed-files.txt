@@ -1,0 +1,22 @@
+ M package.json
+ M src/app/api/license/generate/route.ts
+ M src/lib/admin-provisioning.ts
+ M src/lib/fulfill-checkout-session.ts
+ M src/lib/stripe-dispute-pipeline.ts
+ M src/lib/stripe-refund-pipeline.ts
+ M src/lib/stripe-subscription-pipeline.ts
+ M src/types/database.ts
+?? docs/
+?? src/lib/commercial/
+?? src/lib/entitlements/
+?? supabase/migrations/078_provider_neutral_commercial_ledger.sql
+?? supabase/migrations/079_capability_entitlement_foundation.sql
+ package.json                            |  4 ++++
+ src/app/api/license/generate/route.ts   | 10 ++++++++++
+ src/lib/admin-provisioning.ts           | 27 +++++++++++++++++++++++++++
+ src/lib/fulfill-checkout-session.ts     |  9 +++++++++
+ src/lib/stripe-dispute-pipeline.ts      | 21 +++++++++++++++++++++
+ src/lib/stripe-refund-pipeline.ts       | 11 +++++++++++
+ src/lib/stripe-subscription-pipeline.ts | 10 ++++++++++
+ src/types/database.ts                   | 31 +++++++++++++++++++++++++++++++
+ 8 files changed, 123 insertions(+)

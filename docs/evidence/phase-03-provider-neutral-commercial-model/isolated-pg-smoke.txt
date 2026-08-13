@@ -1,0 +1,47 @@
+INSERT 0 1
+INSERT 0 1
+INSERT 0 3
+ first_backfill 
+----------------
+              3
+(1 row)
+
+  provider   | settlement_status | ref_null 
+-------------+-------------------+----------
+ admin_grant | manually_approved | t
+ stripe      | fully_refunded    | f
+ stripe      | settled           | f
+(3 rows)
+
+ capability_code | status  | quantity | quantity_consumed 
+-----------------+---------+----------+-------------------
+ license_slot    | active  |        1 |                 0
+ license_slot    | active  |        1 |                 0
+ license_slot    | revoked |        1 |                 0
+(3 rows)
+
+ neutral_slots 
+---------------
+             2
+(1 row)
+
+ second_backfill 
+-----------------
+               3
+(1 row)
+
+ tx_count 
+----------
+        3
+(1 row)
+
+ grant_count 
+-------------
+           3
+(1 row)
+
+ policy_count 
+--------------
+           12
+(1 row)
+

@@ -1,0 +1,51 @@
+npm warn Unknown env config "devdir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+> soviez-saas@0.1.0 test:commercial-db
+> node --require ./scripts/mock-server-only.cjs --import tsx --test --test-concurrency=1 src/lib/commercial/e2e/certification.test.ts
+
+NOTICE:  trigger "commercial_transactions_set_updated_at" for relation "public.commercial_transactions" does not exist, skipping
+NOTICE:  trigger "commercial_grants_set_updated_at" for relation "public.commercial_grants" does not exist, skipping
+NOTICE:  policy "Deny anon commercial_transactions" for relation "public.commercial_transactions" does not exist, skipping
+NOTICE:  policy "Users can view own commercial_transactions" for relation "public.commercial_transactions" does not exist, skipping
+NOTICE:  policy "Deny authenticated write commercial_transactions" for relation "public.commercial_transactions" does not exist, skipping
+NOTICE:  policy "Deny authenticated update commercial_transactions" for relation "public.commercial_transactions" does not exist, skipping
+NOTICE:  policy "Deny authenticated delete commercial_transactions" for relation "public.commercial_transactions" does not exist, skipping
+NOTICE:  policy "Deny anon commercial_grants" for relation "public.commercial_grants" does not exist, skipping
+NOTICE:  policy "Users can view own commercial_grants" for relation "public.commercial_grants" does not exist, skipping
+NOTICE:  policy "Deny authenticated write commercial_grants" for relation "public.commercial_grants" does not exist, skipping
+NOTICE:  policy "Deny authenticated update commercial_grants" for relation "public.commercial_grants" does not exist, skipping
+NOTICE:  policy "Deny authenticated delete commercial_grants" for relation "public.commercial_grants" does not exist, skipping
+NOTICE:  policy "Deny anon commercial_grant_allocations" for relation "public.commercial_grant_allocations" does not exist, skipping
+NOTICE:  policy "Deny authenticated commercial_grant_allocations" for relation "public.commercial_grant_allocations" does not exist, skipping
+NOTICE:  policy "Deny anon commercial_capabilities" for relation "public.commercial_capabilities" does not exist, skipping
+NOTICE:  policy "Authenticated read active commercial_capabilities" for relation "public.commercial_capabilities" does not exist, skipping
+NOTICE:  policy "Deny authenticated write commercial_capabilities" for relation "public.commercial_capabilities" does not exist, skipping
+NOTICE:  policy "Deny authenticated update commercial_capabilities" for relation "public.commercial_capabilities" does not exist, skipping
+NOTICE:  policy "Deny authenticated delete commercial_capabilities" for relation "public.commercial_capabilities" does not exist, skipping
+NOTICE:  policy "Deny anon commercial_capability_mappings" for relation "public.commercial_capability_mappings" does not exist, skipping
+NOTICE:  policy "Deny authenticated commercial_capability_mappings" for relation "public.commercial_capability_mappings" does not exist, skipping
+▶ commercial closure certification
+  ✔ Stripe license purchase dual-write + slot parity + duplicate idempotent (15.037291ms)
+  ✔ monthly vs annual support + product_updates exact-license matrix (13.967084ms)
+  ✔ admin grant is admin_grant not Stripe + slot parity + retry (5.365125ms)
+  ✔ admin annual addon with exact license materializes product_updates; cross-license denied (4.646917ms)
+  ✔ refund + dispute + reinstate idempotent (13.321666ms)
+  ✔ subscription lifecycle past_due / expired fail closed for product_updates (6.984042ms)
+  ✔ migration token grant vs wallet shadow + consumption sync (5.166083ms)
+  ✔ consumed slot sync keeps parity (4.984875ms)
+  ✔ pending/failed purchases create no active grants via backfill (3.894959ms)
+  ✔ idempotent backfill and materialize; RLS denials (10.8955ms)
+  ✔ complimentary grant representation without Stripe amount (3.276083ms)
+✔ commercial closure certification (3895.498292ms)
+▶ portal compatibility shapes
+  ✔ customer purchase select fields exclude commercial ledger tables (0.0805ms)
+  ✔ support status record fields remain stable (0.035167ms)
+✔ portal compatibility shapes (0.175833ms)
+ℹ tests 13
+ℹ suites 2
+ℹ pass 13
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 4083.639083

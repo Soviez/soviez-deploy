@@ -1,0 +1,31 @@
+npm warn Unknown env config "devdir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+> soviez-saas@0.1.0 test:commercial
+> tsx --test src/lib/commercial/logic.test.ts
+
+▶ classifyPurchaseProvider
+  ✔ classifies admin_provision as admin_grant without Stripe reference (0.322666ms)
+  ✔ classifies admin-addon prefix as admin_grant (0.066916ms)
+  ✔ classifies real Stripe sessions as stripe settled (0.229125ms)
+  ✔ classifies refunded Stripe as fully_refunded (0.092917ms)
+✔ classifyPurchaseProvider (1.221666ms)
+▶ license slot parity
+  ✔ matches stripe-paid available slot (0.916917ms)
+  ✔ matches admin-granted available slot (0.061417ms)
+  ✔ matches consumed slot (0.054625ms)
+  ✔ excludes refunded purchase from both models (0.073459ms)
+  ✔ sums multiple purchases (0.057958ms)
+  ✔ reports no available slots (0.063708ms)
+✔ license slot parity (1.429917ms)
+▶ idempotency keys
+  ✔ are stable and capability-scoped (0.0605ms)
+✔ idempotency keys (0.09925ms)
+ℹ tests 11
+ℹ suites 3
+ℹ pass 11
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 71.451125
+EXIT:0

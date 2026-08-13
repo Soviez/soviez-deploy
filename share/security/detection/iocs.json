@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0.0",
+  "ioc_version": "s3-0.24.3",
+  "source": "offline-curated + synthetic incident fixtures",
+  "note": "No automatic network refresh. Operator-initiated updates only.",
+  "iocs": [
+    {"type": "domain", "value": "evil-miner-pool.example.test", "severity": "CRITICAL", "tags": ["miner", "fixture"]},
+    {"type": "domain", "value": "payload-cdn.evil.example.test", "severity": "CRITICAL", "tags": ["downloader", "fixture"]},
+    {"type": "url", "value": "http://payload-cdn.evil.example.test/drop.sh", "severity": "CRITICAL", "tags": ["downloader", "fixture"]},
+    {"type": "url", "value": "stratum+tcp://evil-miner-pool.example.test:3333", "severity": "CRITICAL", "tags": ["stratum", "fixture"]},
+    {"type": "ipv4", "value": "198.51.100.66", "severity": "HIGH", "tags": ["fixture", "c2"]},
+    {"type": "process", "value": "xmrig", "severity": "CRITICAL", "tags": ["miner"]},
+    {"type": "process", "value": "kworkerds", "severity": "HIGH", "tags": ["miner", "masquerade"]},
+    {"type": "hash_sha256", "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "severity": "CRITICAL", "tags": ["fixture"]}
+  ]
+}

@@ -1,0 +1,4 @@
+# OFF_HOST_BACKUP_RELEASE_DECISION
+OD-RELEASE-OFFHOST-BACKUP=PENDING
+technical_capability_certified=YES
+local_only_not_dr=YES

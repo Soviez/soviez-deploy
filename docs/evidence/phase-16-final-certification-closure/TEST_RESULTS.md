@@ -1,0 +1,12 @@
+# Test results (closure) — final
+- tests/integration/test_backup_s3_real.sh PASS
+- tests/integration/test_backup_sftp_real.sh PASS
+- tests/integration/test_restore_test_real.sh PASS
+- tests/integration/test_phase16_reboot_matrix.sh PASS
+- tests/integration/test_production_restore_real.sh PASS
+- tests/integration/test_stage_backup_live_db.sh PASS
+- tests/security/test_phase16_secret_handling.sh PASS
+- tests/security/test_phase16_forbidden_operations.sh PASS
+- tests/unit/test_backup_restore_unit.sh PASS
+- tests/integration/test_backup_restore_e2e.sh PASS
+- tests/run_all.sh PASS (final session log `/tmp/run_all_p16c.txt`)

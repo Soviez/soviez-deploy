@@ -1,0 +1,1 @@
+APPROVED_FOR_STAGE|PRODUCTION; never auto.

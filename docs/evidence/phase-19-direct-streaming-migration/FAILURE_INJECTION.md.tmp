@@ -1,0 +1,6 @@
+case	expected	actual	source_active	token_reserved	token_consumed	dest_activated
+optional_stage	WARNING	WARNING	true	false	false	false
+mandatory_stage	BLOCKED	BLOCKED	true	false	false	false
+backup_old	MIGRATION_SOURCE_BACKUP_TOO_OLD	DENIED	true	false	false	false
+cert_local	MIGRATION_TRANSFER_CHANNEL_FAILED	DENIED	true	false	false	false
+wrong_ca	DENIED	DENIED	true	false	false	false

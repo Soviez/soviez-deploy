@@ -1,0 +1,3 @@
+# MIGRATION_STAGE_CUTOVER_PROTOCOL
+
+Phase 21 protocol. See `docs/ai/MIGRATION_PRODUCTION_CUTOVER_AND_ROLLBACK_MODEL.md` and evidence pack.

@@ -1,0 +1,7 @@
+# Transitions
+
+reserved→instance_provisioned|released|expired|revoked
+instance_provisioned→manual_pending|key_issued|failed_retryable|revoked
+manual_pending→key_issued
+failed_retryable→instance_provisioned
+key_issued→activation_pending→activated

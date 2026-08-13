@@ -1,0 +1,68 @@
+npm warn Unknown env config "devdir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+> soviez-saas@0.1.0 test:phase4
+> tsx --test src/lib/commercial/logic.test.ts src/lib/entitlements/logic.test.ts
+
+▶ classifyPurchaseProvider
+  ✔ classifies admin_provision as admin_grant without Stripe reference (0.640708ms)
+  ✔ classifies admin-addon prefix as admin_grant (0.06325ms)
+  ✔ classifies real Stripe sessions as stripe settled (0.063542ms)
+  ✔ classifies refunded Stripe as fully_refunded (0.053417ms)
+✔ classifyPurchaseProvider (1.352084ms)
+▶ license slot parity
+  ✔ matches stripe-paid available slot (0.714083ms)
+  ✔ matches admin-granted available slot (0.074042ms)
+  ✔ matches consumed slot (0.064333ms)
+  ✔ excludes refunded purchase from both models (0.066834ms)
+  ✔ sums multiple purchases (0.059917ms)
+  ✔ reports no available slots (0.067583ms)
+✔ license slot parity (1.204167ms)
+▶ idempotency keys
+  ✔ are stable and capability-scoped (0.06025ms)
+✔ idempotency keys (0.100166ms)
+▶ capabilitiesForSupportSlug
+  ✔ monthly grants support not updates (0.310875ms)
+  ✔ annual maps support and updates (0.049875ms)
+  ✔ legacy slug fails closed for updates (0.045625ms)
+✔ capabilitiesForSupportSlug (0.838167ms)
+▶ resolveCapabilityPure — basics
+  ✔ allows account boolean capability (1.40875ms)
+  ✔ denies when no grants (0.239792ms)
+  ✔ denies disabled capability (0.135042ms)
+✔ resolveCapabilityPure — basics (2.0615ms)
+▶ exact-license enforcement
+  ✔ requires license_id for license-scoped capability (0.138667ms)
+  ✔ allows exact license match (0.102208ms)
+  ✔ denies wrong license (0.06625ms)
+  ✔ denies wrong account owning license (0.068459ms)
+  ✔ unbound grant cannot authorize product_updates (0.05525ms)
+✔ exact-license enforcement (0.5695ms)
+▶ monthly vs annual / reversals
+  ✔ monthly support grant does not create product_updates allowance (0.075208ms)
+  ✔ expired annual updates denied (0.331ms)
+  ✔ refunded settlement denied (0.049208ms)
+  ✔ disputed settlement denied (0.037792ms)
+  ✔ revoked grant denied (0.054167ms)
+  ✔ not-yet-valid denied (0.036792ms)
+✔ monthly vs annual / reversals (0.658667ms)
+▶ quantity capabilities
+  ✔ sufficient quantity allowed (0.052875ms)
+  ✔ insufficient quantity denied (0.03075ms)
+✔ quantity capabilities (0.116875ms)
+▶ License Slot shadow parity (Phase 3+4)
+  ✔ stripe-paid available matches (0.126167ms)
+  ✔ consumed and refunded match (0.042417ms)
+✔ License Slot shadow parity (Phase 3+4) (0.205625ms)
+▶ Migration Token shadow parity
+  ✔ available wallet equals neutral grants when aligned (0.107166ms)
+  ✔ consumed token reduces quantity (0.054834ms)
+  ✔ refunded token not available (0.027166ms)
+✔ Migration Token shadow parity (0.242584ms)
+ℹ tests 35
+ℹ suites 10
+ℹ pass 35
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 99.024

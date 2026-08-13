@@ -1,0 +1,5 @@
+```
+SOVIEZ SECURITY — COMPROMISE DETECTION
+Database persistence scan: ...
+OVERALL: PASS | PASS_WITH_REVIEW | FAIL
+```

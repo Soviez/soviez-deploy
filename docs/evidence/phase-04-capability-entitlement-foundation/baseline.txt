@@ -1,0 +1,15 @@
+branch=main
+commit=2f2f13c655ac42aa976764db56d939bf60a40094
+tracking=origin/main
+--- porcelain ---
+ M package.json
+ M src/app/api/license/generate/route.ts
+ M src/lib/admin-provisioning.ts
+ M src/lib/fulfill-checkout-session.ts
+ M src/lib/stripe-dispute-pipeline.ts
+ M src/lib/stripe-refund-pipeline.ts
+ M src/lib/stripe-subscription-pipeline.ts
+ M src/types/database.ts
+?? docs/
+?? src/lib/commercial/
+?? supabase/migrations/078_provider_neutral_commercial_ledger.sql

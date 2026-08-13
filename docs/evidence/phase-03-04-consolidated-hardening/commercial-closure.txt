@@ -1,0 +1,137 @@
+npm warn Unknown env config "devdir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+> soviez-saas@0.1.0 test:commercial-closure
+> npm run test:phase3 && npm run test:phase4 && npm run test:commercial-db
+
+npm warn Unknown env config "devdir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+> soviez-saas@0.1.0 test:phase3
+> tsx --test src/lib/commercial/logic.test.ts
+
+▶ classifyPurchaseProvider
+  ✔ classifies admin_provision as admin_grant without Stripe reference (0.30675ms)
+  ✔ classifies admin-addon prefix as admin_grant (0.04875ms)
+  ✔ classifies real Stripe sessions as stripe settled (0.0545ms)
+  ✔ classifies refunded Stripe as fully_refunded (0.043291ms)
+✔ classifyPurchaseProvider (0.886542ms)
+▶ license slot parity
+  ✔ matches stripe-paid available slot (0.633333ms)
+  ✔ matches admin-granted available slot (0.063375ms)
+  ✔ matches consumed slot (0.058375ms)
+  ✔ excludes refunded purchase from both models (0.067834ms)
+  ✔ sums multiple purchases (0.065458ms)
+  ✔ reports no available slots (0.065584ms)
+✔ license slot parity (1.106084ms)
+▶ idempotency keys
+  ✔ are stable and capability-scoped (0.072667ms)
+✔ idempotency keys (0.124292ms)
+ℹ tests 11
+ℹ suites 3
+ℹ pass 11
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 79.995958
+npm warn Unknown env config "devdir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+> soviez-saas@0.1.0 test:phase4
+> tsx --test src/lib/entitlements/logic.test.ts
+
+▶ capabilitiesForSupportSlug
+  ✔ monthly grants support not updates (0.288ms)
+  ✔ annual maps support and updates (0.064625ms)
+  ✔ legacy slug fails closed for updates (0.052459ms)
+✔ capabilitiesForSupportSlug (0.878208ms)
+▶ resolveCapabilityPure — basics
+  ✔ allows account boolean capability (0.678292ms)
+  ✔ denies when no grants (0.055375ms)
+  ✔ denies disabled capability (0.048834ms)
+✔ resolveCapabilityPure — basics (0.873ms)
+▶ exact-license enforcement
+  ✔ requires license_id for license-scoped capability (0.080083ms)
+  ✔ allows exact license match (0.098792ms)
+  ✔ denies wrong license (0.0725ms)
+  ✔ denies wrong account owning license (0.097125ms)
+  ✔ unbound grant cannot authorize product_updates (0.056583ms)
+✔ exact-license enforcement (0.586417ms)
+▶ monthly vs annual / reversals
+  ✔ monthly support grant does not create product_updates allowance (0.077083ms)
+  ✔ expired annual updates denied (0.061166ms)
+  ✔ refunded settlement denied (0.046ms)
+  ✔ disputed settlement denied (0.031833ms)
+  ✔ revoked grant denied (0.035792ms)
+  ✔ not-yet-valid denied (0.033625ms)
+✔ monthly vs annual / reversals (0.354125ms)
+▶ quantity capabilities
+  ✔ sufficient quantity allowed (0.317625ms)
+  ✔ insufficient quantity denied (0.053875ms)
+✔ quantity capabilities (0.414417ms)
+▶ License Slot shadow parity (Phase 3+4)
+  ✔ stripe-paid available matches (0.107417ms)
+  ✔ consumed and refunded match (0.034292ms)
+✔ License Slot shadow parity (Phase 3+4) (0.17325ms)
+▶ Migration Token shadow parity
+  ✔ available wallet equals neutral grants when aligned (0.069375ms)
+  ✔ consumed token reduces quantity (0.041125ms)
+  ✔ refunded token not available (0.022333ms)
+✔ Migration Token shadow parity (0.165708ms)
+ℹ tests 24
+ℹ suites 7
+ℹ pass 24
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 79.765333
+npm warn Unknown env config "devdir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+> soviez-saas@0.1.0 test:commercial-db
+> node --require ./scripts/mock-server-only.cjs --import tsx --test --test-concurrency=1 src/lib/commercial/e2e/certification.test.ts
+
+NOTICE:  trigger "commercial_transactions_set_updated_at" for relation "public.commercial_transactions" does not exist, skipping
+NOTICE:  trigger "commercial_grants_set_updated_at" for relation "public.commercial_grants" does not exist, skipping
+NOTICE:  policy "Deny anon commercial_transactions" for relation "public.commercial_transactions" does not exist, skipping
+NOTICE:  policy "Users can view own commercial_transactions" for relation "public.commercial_transactions" does not exist, skipping
+NOTICE:  policy "Deny authenticated write commercial_transactions" for relation "public.commercial_transactions" does not exist, skipping
+NOTICE:  policy "Deny authenticated update commercial_transactions" for relation "public.commercial_transactions" does not exist, skipping
+NOTICE:  policy "Deny authenticated delete commercial_transactions" for relation "public.commercial_transactions" does not exist, skipping
+NOTICE:  policy "Deny anon commercial_grants" for relation "public.commercial_grants" does not exist, skipping
+NOTICE:  policy "Users can view own commercial_grants" for relation "public.commercial_grants" does not exist, skipping
+NOTICE:  policy "Deny authenticated write commercial_grants" for relation "public.commercial_grants" does not exist, skipping
+NOTICE:  policy "Deny authenticated update commercial_grants" for relation "public.commercial_grants" does not exist, skipping
+NOTICE:  policy "Deny authenticated delete commercial_grants" for relation "public.commercial_grants" does not exist, skipping
+NOTICE:  policy "Deny anon commercial_grant_allocations" for relation "public.commercial_grant_allocations" does not exist, skipping
+NOTICE:  policy "Deny authenticated commercial_grant_allocations" for relation "public.commercial_grant_allocations" does not exist, skipping
+NOTICE:  policy "Deny anon commercial_capabilities" for relation "public.commercial_capabilities" does not exist, skipping
+NOTICE:  policy "Authenticated read active commercial_capabilities" for relation "public.commercial_capabilities" does not exist, skipping
+NOTICE:  policy "Deny authenticated write commercial_capabilities" for relation "public.commercial_capabilities" does not exist, skipping
+NOTICE:  policy "Deny authenticated update commercial_capabilities" for relation "public.commercial_capabilities" does not exist, skipping
+NOTICE:  policy "Deny authenticated delete commercial_capabilities" for relation "public.commercial_capabilities" does not exist, skipping
+NOTICE:  policy "Deny anon commercial_capability_mappings" for relation "public.commercial_capability_mappings" does not exist, skipping
+NOTICE:  policy "Deny authenticated commercial_capability_mappings" for relation "public.commercial_capability_mappings" does not exist, skipping
+▶ commercial closure certification
+  ✔ Stripe license purchase dual-write + slot parity + duplicate idempotent (20.545833ms)
+  ✔ monthly vs annual support + product_updates exact-license matrix (15.859458ms)
+  ✔ admin grant is admin_grant not Stripe + slot parity + retry (5.633375ms)
+  ✔ admin annual addon with exact license materializes product_updates; cross-license denied (4.902333ms)
+  ✔ refund + dispute + reinstate idempotent (17.7515ms)
+  ✔ subscription lifecycle past_due / expired fail closed for product_updates (7.127ms)
+  ✔ migration token grant vs wallet shadow + consumption sync (14.756417ms)
+  ✔ consumed slot sync keeps parity (7.913709ms)
+  ✔ pending/failed purchases create no active grants via backfill (11.251084ms)
+  ✔ idempotent backfill and materialize; RLS denials (43.652833ms)
+  ✔ complimentary grant representation without Stripe amount (5.49575ms)
+✔ commercial closure certification (4033.933084ms)
+▶ portal compatibility shapes
+  ✔ customer purchase select fields exclude commercial ledger tables (0.078792ms)
+  ✔ support status record fields remain stable (0.037666ms)
+✔ portal compatibility shapes (0.181083ms)
+ℹ tests 13
+ℹ suites 2
+ℹ pass 13
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 4145.735708

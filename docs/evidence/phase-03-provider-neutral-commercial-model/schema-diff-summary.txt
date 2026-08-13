@@ -1,0 +1,30 @@
+
+=== schema objects in 078 ===
+27:CREATE TABLE IF NOT EXISTS public.commercial_transactions (
+65:COMMENT ON TABLE public.commercial_transactions IS
+67:COMMENT ON COLUMN public.commercial_transactions.provider IS
+69:COMMENT ON COLUMN public.commercial_transactions.provider_reference IS
+71:COMMENT ON COLUMN public.commercial_transactions.idempotency_key IS
+85:CREATE TABLE IF NOT EXISTS public.commercial_grants (
+119:COMMENT ON TABLE public.commercial_grants IS
+121:COMMENT ON COLUMN public.commercial_grants.capability_code IS
+123:COMMENT ON COLUMN public.commercial_grants.target_license_id IS
+140:CREATE TABLE IF NOT EXISTS public.commercial_grant_allocations (
+157:COMMENT ON TABLE public.commercial_grant_allocations IS
+164:CREATE OR REPLACE FUNCTION public.set_commercial_updated_at()
+194:CREATE POLICY "Deny anon commercial_transactions"
+199:CREATE POLICY "Users can view own commercial_transactions"
+204:CREATE POLICY "Deny authenticated write commercial_transactions"
+209:CREATE POLICY "Deny authenticated update commercial_transactions"
+214:CREATE POLICY "Deny authenticated delete commercial_transactions"
+219:CREATE POLICY "Deny anon commercial_grants"
+224:CREATE POLICY "Users can view own commercial_grants"
+229:CREATE POLICY "Deny authenticated write commercial_grants"
+234:CREATE POLICY "Deny authenticated update commercial_grants"
+239:CREATE POLICY "Deny authenticated delete commercial_grants"
+244:CREATE POLICY "Deny anon commercial_grant_allocations"
+249:CREATE POLICY "Deny authenticated commercial_grant_allocations"
+268:CREATE OR REPLACE FUNCTION public.get_neutral_available_license_slots(p_user_id UUID)
+313:COMMENT ON FUNCTION public.get_neutral_available_license_slots(UUID) IS
+320:CREATE OR REPLACE FUNCTION public.backfill_commercial_ledger_from_purchases()
+605:COMMENT ON FUNCTION public.backfill_commercial_ledger_from_purchases() IS

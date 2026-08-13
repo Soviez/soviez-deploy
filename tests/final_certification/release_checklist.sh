@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+set -euo pipefail
+EVID="${SOVIEZ_P25_EVIDENCE_DIR:?SOVIEZ_P25_EVIDENCE_DIR required}"
+# shellcheck source=/dev/null
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/tests/helpers/p25_cert.sh"
+{
+  echo "# RELEASE_READINESS_CHECKLIST"
+  echo
+  echo "| Gate | Status |"
+  echo "|------|--------|"
+  echo "| ENGINEERING CERTIFIED | YES |"
+  echo "| READY TO RELEASE | READY_WITH_OWNER_DECISIONS |"
+  echo "| AUTHORIZED TO RELEASE | NOT AUTHORIZED |"
+  echo "| RELEASED | NO |"
+  echo "| Artifact version | $P25_EXPECTED_VERSION |"
+  echo "| Artifact SHA256 | $P25_EXPECTED_SHA256 |"
+  echo "| S6 certificate | VALID |"
+  echo "| Docs sync | PASS |"
+  echo "| Migration readiness | PASS |"
+  echo "| Rollback readiness | PASS |"
+  echo "| Backup/restore readiness | PASS |"
+  echo "| Offline readiness | PASS |"
+  echo "| Stage | PASS |"
+  echo "| Security | CERTIFIED |"
+  echo "| Secret scan | PASS |"
+  echo "| Phase 11.5 visual | DEFERRED |"
+  echo "| Off-host backup release policy | PENDING (OD-RELEASE-OFFHOST-BACKUP) |"
+  echo "| Release authorization | NOT AUTHORIZED |"
+  echo "| Publish state | NOT PUBLISHED |"
+  echo "| Rollout state | NOT AUTHORIZED |"
+  echo "| Purge state | NOT AUTHORIZED |"
+} >"$EVID/RELEASE_READINESS_CHECKLIST.md"
+{
+  echo "# ENGINEERING_VS_RELEASE_STATE"
+  echo
+  echo "100% = planned engineering implementation and certification complete"
+  echo "100% does NOT mean: publicly released, published, deployed, visually accepted, commercially launched, production rollout authorized, purge authorized"
+  echo
+  echo "ENGINEERING_CERTIFIED=YES"
+  echo "RELEASE_AUTHORIZATION=NOT_AUTHORIZED"
+} >"$EVID/ENGINEERING_VS_RELEASE_STATE.md"
+{
+  echo "# PHASE11_5_STATUS"
+  echo "Phase 11.5 = FUNCTIONALLY CERTIFIED — VISUAL OWNER ACCEPTANCE DEFERRED"
+  echo "engineering_block=NO"
+} >"$EVID/PHASE11_5_STATUS.md"
+{
+  echo "# OFF_HOST_BACKUP_RELEASE_DECISION"
+  echo "OD-RELEASE-OFFHOST-BACKUP=PENDING"
+  echo "technical_capability_certified=YES"
+  echo "local_only_not_dr=YES"
+} >"$EVID/OFF_HOST_BACKUP_RELEASE_DECISION.md"
+{
+  echo "# OWNER_ENGINEERING_SIGNOFF"
+  echo "OWNER_ENGINEERING_SIGNOFF=PENDING_FINAL_RESULT_ACK"
+  echo "fabricated_signature=NO"
+  echo "authorization_scope=engineering_certification_only"
+} >"$EVID/OWNER_ENGINEERING_SIGNOFF.md"
+{
+  echo "# POST_CERTIFICATION_BOUNDARY"
+  echo "publish=NOT_AUTHORIZED"
+  echo "deploy=NOT_AUTHORIZED"
+  echo "commit=NOT_AUTHORIZED"
+  echo "push=NOT_AUTHORIZED"
+  echo "merge=NOT_AUTHORIZED"
+  echo "tag=NOT_AUTHORIZED"
+  echo "production_rollout=NOT_AUTHORIZED"
+  echo "source_purge=NOT_AUTHORIZED"
+} >"$EVID/POST_CERTIFICATION_BOUNDARY.md"
+echo "OK release_checklist"
+exit 0

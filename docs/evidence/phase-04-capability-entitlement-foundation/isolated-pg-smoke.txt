@@ -1,0 +1,73 @@
+INSERT 0 2
+INSERT 0 2
+INSERT 0 2
+INSERT 0 4
+ backfill_n 
+------------
+          4
+(1 row)
+
+UPDATE 1
+UPDATE 1
+ mat1 
+------
+    1
+(1 row)
+
+ mat2_idempotent 
+-----------------
+               1
+(1 row)
+
+         code          
+-----------------------
+ automatic_activation
+ license_slot
+ migration_token
+ offline_update_bundle
+ private_image_pull
+ product_updates
+ stage_environments
+ technical_support
+(8 rows)
+
+  capability_code  | has_lic | status 
+-------------------+---------+--------
+ license_slot      | f       | active
+ migration_token   | f       | active
+ product_updates   | t       | active
+ technical_support | t       | active
+ technical_support | f       | active
+(5 rows)
+
+ updates_lic_a 
+---------------
+ true
+(1 row)
+
+ updates_lic_b_deny 
+--------------------
+ NO_ENTITLEMENT
+(1 row)
+
+  updates_no_lic  
+------------------
+ LICENSE_REQUIRED
+(1 row)
+
+ support_ok 
+------------
+ true
+(1 row)
+
+ slots 
+-------
+ 1
+(1 row)
+
+ tokens 
+--------
+ 1
+(1 row)
+
+SET

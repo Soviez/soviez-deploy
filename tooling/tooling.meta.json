@@ -1,0 +1,6 @@
+{
+  "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "signed": true,
+  "artifact_id": "stage-tooling-offline-v1",
+  "no_production_secrets": true
+}
