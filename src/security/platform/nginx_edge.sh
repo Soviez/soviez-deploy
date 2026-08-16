@@ -12,6 +12,14 @@ soviez_nginx_s2_render_hardened() {
   local headers_block=""
   local rate_block=""
   local ws_map=""
+  local ws_upstream="${SOVIEZ_NGINX_WS_UPSTREAM:-}"
+  if [[ -z "$ws_upstream" ]]; then
+    if [[ "$upstream" =~ ^(.+):8069$ ]]; then
+      ws_upstream="${BASH_REMATCH[1]}:8072"
+    else
+      ws_upstream="$upstream"
+    fi
+  fi
 
   # Upstream must be localhost/private — reject obvious public IPs in upstream string for Production.
   if [[ "$upstream" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+: ]]; then
@@ -112,7 +120,7 @@ server {
 ${rate_block}
 
     location /websocket {
-        proxy_pass http://${upstream};
+        proxy_pass http://${ws_upstream};
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
@@ -125,7 +133,7 @@ ${rate_block}
     }
 
     location /longpolling {
-        proxy_pass http://${upstream};
+        proxy_pass http://${ws_upstream};
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;

@@ -39,6 +39,20 @@ soviez_docker_provision_start() {
       spec="127.0.0.1:${host_port}:8069"
     fi
     publish_args=(-p "$spec")
+    # Multi-worker gevent/evented port (loopback only). Host port = http+3 or SOVIEZ_GEVENT_HOST_PORT.
+    local gevent_host="${SOVIEZ_GEVENT_HOST_PORT:-}"
+    if [[ -z "$gevent_host" && "$host_port" =~ ^[0-9]+$ ]]; then
+      gevent_host=$((host_port + 3))
+    fi
+    if [[ -n "$gevent_host" && "${SOVIEZ_PUBLISH_GEVENT:-1}" == "1" ]]; then
+      local gspec
+      if declare -F soviez_sec_odoo_loopback_publish_spec >/dev/null 2>&1; then
+        gspec="$(soviez_sec_odoo_loopback_publish_spec "$gevent_host" 8072)"
+      else
+        gspec="127.0.0.1:${gevent_host}:8072"
+      fi
+      publish_args+=(-p "$gspec")
+    fi
   fi
 
   if docker ps -a --format '{{.Names}}' | grep -qx "$container_name"; then

@@ -127,13 +127,21 @@ staged2="$(soviez_nginx_render_owned env1 example.test 127.0.0.1:18069 /tmp/c.pe
 grep -q 'location /websocket' "$staged2" && pass WS-007 || bad WS-007
 pass WS-008  # firewall policy unchanged; covered by S2; marker pass for matrix
 
-# WS-009 workers>0 rejected
+# WS-009 workers>0 requires gevent_port=8072 (owner-approved multi-worker topology)
 cat >"$TMP/w1.conf" <<'EOF'
 [options]
 proxy_mode = True
 workers = 3
+gevent_port = 8072
 EOF
-if soviez_ws_assert_odoo_conf "$TMP/w1.conf"; then bad WS-009; else pass WS-009; fi
+if soviez_ws_assert_odoo_conf "$TMP/w1.conf"; then pass WS-009; else bad WS-009; fi
+# workers>0 without gevent_port must fail
+cat >"$TMP/w1bad.conf" <<'EOF'
+[options]
+proxy_mode = True
+workers = 3
+EOF
+if soviez_ws_assert_odoo_conf "$TMP/w1bad.conf"; then bad WS-009b; else pass WS-009b; fi
 
 # WS-010 longpolling status
 [[ "$(soviez_ws_longpolling_status)" == "COMPATIBILITY_ROUTED" ]] && pass WS-010 || bad WS-010

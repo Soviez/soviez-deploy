@@ -48,8 +48,17 @@ server {
 }
 EOF
   else
+    local ws_upstream="${SOVIEZ_NGINX_WS_UPSTREAM:-}"
+    if [[ -z "$ws_upstream" ]]; then
+      # Owner-approved topology: HTTP :8069, WebSocket/gevent :8072 on same host.
+      if [[ "$upstream" =~ ^(.+):8069$ ]]; then
+        ws_upstream="${BASH_REMATCH[1]}:8072"
+      else
+        ws_upstream="$upstream"
+      fi
+    fi
     cat > "$staged" <<EOF
-# SOVIEZ_OWNED env_id=${env_id} domain=${domain} module=ssl_lifecycle version=phase12-ws1
+# SOVIEZ_OWNED env_id=${env_id} domain=${domain} module=ssl_lifecycle version=phase12-ws2
 server {
     listen 80;
     server_name ${domain};
@@ -65,7 +74,7 @@ server {
     proxy_send_timeout 720s;
 
     location /websocket {
-        proxy_pass http://${upstream};
+        proxy_pass http://${ws_upstream};
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection \$connection_upgrade;
@@ -76,9 +85,9 @@ server {
         proxy_read_timeout 720s;
     }
 
-    # Compatibility: same upstream (certified workers=0 → :8069 topology)
+    # Compatibility (Odoo 18): longpolling → evented backend when multi-worker
     location /longpolling {
-        proxy_pass http://${upstream};
+        proxy_pass http://${ws_upstream};
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection \$connection_upgrade;
