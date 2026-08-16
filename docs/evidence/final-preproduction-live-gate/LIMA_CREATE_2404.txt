@@ -1,0 +1,11 @@
+time="2026-08-16T16:02:06+03:00" level=warning msg="failed to detect whether running under rosetta, assuming false" error="failed to read sysctl \"sysctl.proc_translated\": operation not permitted"
+time="2026-08-16T16:02:06+03:00" level=info msg="Terminal is not available, proceeding without opening an editor"
+time="2026-08-16T16:02:06+03:00" level=info msg="Replacing `http_proxy` value `http://127.0.0.1:57173` with `http://192.168.5.2:57173`"
+time="2026-08-16T16:02:06+03:00" level=info msg="Replacing `https_proxy` value `http://127.0.0.1:57173` with `http://192.168.5.2:57173`"
+time="2026-08-16T16:02:06+03:00" level=info msg="Replacing `HTTP_PROXY` value `http://127.0.0.1:57173` with `http://192.168.5.2:57173`"
+time="2026-08-16T16:02:06+03:00" level=info msg="Replacing `HTTPS_PROXY` value `http://127.0.0.1:57173` with `http://192.168.5.2:57173`"
+time="2026-08-16T16:02:06+03:00" level=info msg="Attempting to download the image" arch=aarch64 digest= location=/Volumes/PortableSSD/soviez-project/.fakehome/Library/Caches/lima/download/ubuntu-24.04-server-cloudimg-arm64.img
+time="2026-08-16T16:02:06+03:00" level=info msg="Downloaded the image from `/Volumes/PortableSSD/soviez-project/.fakehome/Library/Caches/lima/download/ubuntu-24.04-server-cloudimg-arm64.img`"
+time="2026-08-16T16:02:06+03:00" level=info msg="Converting `/Volumes/PortableSSD/soviez-project/.lima/soviez-u2404/image` (qcow2) to a raw disk `/Volumes/PortableSSD/soviez-project/.lima/soviez-u2404/disk`"
+time="2026-08-16T16:02:11+03:00" level=info msg="Expanding to 40GiB"
+time="2026-08-16T16:02:12+03:00" level=info msg="Run `limactl start soviez-u2404` to start the instance."

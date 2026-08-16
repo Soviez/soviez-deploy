@@ -1,0 +1,16 @@
+{
+  "artifact_size": 1706998,
+  "artifact_url": "https://raw.githubusercontent.com/Soviez/soviez-deploy/cert/0.24.6.1-platform-cli/platform-release/staging/soviez.sh",
+  "channel": "staging",
+  "minimum_launcher_version": "0.24.6.0-platform-cli",
+  "released_at": "2026-08-16T12:55:05Z",
+  "schema": "soviez.platform_release.v1",
+  "sha256": "dc16a4cde22e2e6142706b0e5937237028931ca1c3e352b356a22bfd966e051b",
+  "signature": "g34Wdyi9SpyWsc5IffYPbrt_JRIVEYjE5tLKTdqiCneuGL-nzHTXfVOet8xF7LmCxHsR-Utu460i8SW63ZRxAQ",
+  "signature_algorithm": "ed25519",
+  "signature_b64url": "g34Wdyi9SpyWsc5IffYPbrt_JRIVEYjE5tLKTdqiCneuGL-nzHTXfVOet8xF7LmCxHsR-Utu460i8SW63ZRxAQ",
+  "signed": true,
+  "signed_at": "2026-08-16T14:30:00Z",
+  "signer_key_id": "unknown-attacker-key",
+  "version": "0.24.6.2-platform-cli"
+}

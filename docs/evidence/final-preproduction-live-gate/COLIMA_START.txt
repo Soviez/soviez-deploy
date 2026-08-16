@@ -1,0 +1,11 @@
+time="2026-08-16T16:04:22+03:00" level=warning msg="failed to detect whether running under rosetta, assuming false" error="failed to read sysctl \"sysctl.proc_translated\": operation not permitted"
+time="2026-08-16T16:04:22+03:00" level=info msg="starting colima"
+time="2026-08-16T16:04:22+03:00" level=info msg="runtime: docker"
+time="2026-08-16T16:04:22+03:00" level=info msg="creating and starting ..." context=vm
+time="2026-08-16T16:04:22+03:00" level=info msg="downloading disk image ..." context=vm
+time="2026-08-16T16:05:57+03:00" level=warning msg="failed to detect whether running under rosetta, assuming false" error="failed to read sysctl \"sysctl.proc_translated\": operation not permitted"
+time="2026-08-16T16:05:57+03:00" level=info msg="Terminal is not available, proceeding without opening an editor"
+time="2026-08-16T16:05:57+03:00" level=info msg="Replacing `http_proxy` value `http://127.0.0.1:57314` with `http://192.168.5.2:57314`"
+time="2026-08-16T16:05:57+03:00" level=info msg="Replacing `https_proxy` value `http://127.0.0.1:57314` with `http://192.168.5.2:57314`"
+time="2026-08-16T16:05:57+03:00" level=info msg="Replacing `HTTP_PROXY` value `http://127.0.0.1:57314` with `http://192.168.5.2:57314`"
+time="2026-08-16T16:05:57+03:00" level=info msg="Replacing `HTTPS_PROXY` value `http://127.0.0.1:57314` with `http://192.168.5.2:57314`"
