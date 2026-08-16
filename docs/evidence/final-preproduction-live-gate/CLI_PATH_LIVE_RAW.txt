@@ -1,0 +1,48 @@
+=== BARE PATH no SOVIEZ_ROOT ===
+curl: (22) The requested URL returned error: 404
+Soviez.sh 0.24.6.2-platform-cli
+Channel: staging
+Artifact: sha256:fbd3a3eab448e4d34bcfd5b78d0178d72b4178ed71ccff2abb11a96f3f78a193
+Payload: /opt/soviez/platform/current/soviez.sh
+Usage: soviez.sh --new [options]
+       soviez.sh --version
+       soviez.sh --list
+       soviez.sh --tune [--dry-run]
+       soviez.sh --platform-install
+       soviez.sh --reattach <operation-id>
+       soviez.sh --update <production-environment-id> [--release ID] [--offline-package PATH] [--confirm]
+       soviez.sh --update-status <operation-id>
+       soviez.sh --update-reattach <operation-id>
+       soviez.sh --update-cancel <operation-id>
+       soviez.sh --update-retry <operation-id>
+       soviez.sh --update-recover <operation-id>
+       soviez.sh --update-rollback <operation-id>
+       soviez.sh --update-cleanup <operation-id> --confirm
+       soviez.sh --update-image-status [--production ID]
+       soviez.sh --update-image-cleanup [--dry-run] [--production ID] [--confirm]
+       soviez.sh --update-image-cleanup --retry <operation-id>
+       soviez.sh --stage [options]
+       soviez.sh --stage-list
+       soviez.sh --stage-status <stage-id>
+BARE_EXIT_VERSION=0
+=== /tmp copy bare PATH ===
+curl: (22) The requested URL returned error: 404
+Soviez.sh 0.24.6.2-platform-cli
+Channel: staging
+Artifact: sha256:fbd3a3eab448e4d34bcfd5b78d0178d72b4178ed71ccff2abb11a96f3f78a193
+Payload: /opt/soviez/platform/current/soviez.sh
+TMP_BARE_OK
+=== SHA match ===
+fbd3a3eab448e4d34bcfd5b78d0178d72b4178ed71ccff2abb11a96f3f78a193  /opt/soviez/platform/current/soviez.sh
+330:    SOVIEZ_ROOT="${SOVIEZ_ROOT:-/var/soviez}"
+9999:    _soviez_ssl_root="${SOVIEZ_ROOT:-/var/soviez}"
+10000:    _soviez_ssl_ops="${SOVIEZ_OPS_ROOT:-${_soviez_ssl_root}/ops}"
+10001:    SOVIEZ_SSL_ROOT="${SOVIEZ_SSL_ROOT:-${_soviez_ssl_root}/ssl}"
+10008:    unset _soviez_ssl_root _soviez_ssl_ops
+13551:  local backup_root="${SOVIEZ_ROOT:-/var/soviez}/backups/stages"
+13861:soviez_retention_tombstone_dir() { printf '%s/retention-tombstones\n' "${SOVIEZ_ROOT:-/var/soviez}"; }
+14292:  dest_root="${SOVIEZ_ROOT:-/var/soviez}/backups/retention"
+14445:    [[ -f "${SOVIEZ_PRODUCTION_HEALTH_FILE:-${SOVIEZ_ROOT:-/var/soviez}/production.ok}" ]] \
+20771:  local root="${SOVIEZ_ROOT:-/var/soviez}"
+=== Fresh platform-install from current payload ===
+[error] Unknown argument: platform-install

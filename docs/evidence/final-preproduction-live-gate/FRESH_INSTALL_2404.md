@@ -1,11 +1,10 @@
 # FRESH_INSTALL_2404
 
-- captured_utc: 2026-08-16T15:19:08Z
+- captured_utc: 2026-08-16T15:34:52Z
 - host: lima soviez-u2404 (Ubuntu 24.04.4 LTS Noble)
-- method: same staging bootstrap as 2204
-- artifact_sha256: dc16a4cde22e2e6142706b0e5937237028931ca1c3e352b356a22bfd966e051b
+- method: staging self-update apply to 0.24.6.2 (cert branch manifest) after mkdir hotfix on 0.24.6.1
+- artifact_sha256: fbd3a3eab448e4d34bcfd5b78d0178d72b4178ed71ccff2abb11a96f3f78a193
 - launcher install: PASS
-- bare PATH invocation: FAIL (SOVIEZ_ROOT unbound)
-- with SOVIEZ_ROOT=/var/soviez CLI probes: PASS
+- bare PATH invocation: PASS
 - Docker Engine in Lima: BLOCKED (not installed)
 - listeners 8069/8072 and nginx websocket 101: BLOCKED
