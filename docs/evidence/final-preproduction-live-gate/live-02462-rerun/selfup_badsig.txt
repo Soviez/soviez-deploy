@@ -1,0 +1,5 @@
+/opt/soviez/platform/current/soviez.sh: line 25704: printf: -1: invalid option
+printf: usage: printf [-v var] format [arguments]
+[error] platform Ed25519 signature verification failed
+[error] platform security verification failed; candidate NOT installed; current platform preserved
+[error] platform self-update preflight failed

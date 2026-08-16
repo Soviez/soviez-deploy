@@ -1,0 +1,58 @@
+/opt/soviez/platform/current/soviez.sh: line 25704: printf: -1: invalid option
+printf: usage: printf [-v var] format [arguments]
+[ok] installed platform payload → /opt/soviez/platform/current/soviez.sh
+[ok] installed launcher → /usr/local/bin/soviez.sh
+[ok] digest sha256:fbd3a3eab448e4d34bcfd5b78d0178d72b4178ed71ccff2abb11a96f3f78a193
+[info] platform updated 0.24.6.1-platform-cli → 0.24.6.2-platform-cli; re-executing
+=== Soviez sizing plan ===
+{
+  "cpu": 4,
+  "docker": {
+    "postgres_shm_mb": 829
+  },
+  "host_reserve_mb": 1742,
+  "odoo": {
+    "gevent_port": 8072,
+    "http_port": 8069,
+    "limit_memory_hard": 346030080,
+    "limit_memory_soft": 230686720,
+    "limit_request": 8192,
+    "limit_time_cpu": 60,
+    "limit_time_real": 120,
+    "list_db": false,
+    "max_cron_threads": 2,
+    "proxy_mode": true,
+    "workers": 2
+  },
+  "postgres": {
+    "checkpoint_completion_target": 0.9,
+    "effective_cache_size_mb": 2962,
+    "effective_io_concurrency": 200,
+    "log_lock_waits": true,
+    "log_min_duration_statement_ms": 1000,
+    "maintenance_work_mem_mb": 236,
+    "max_connections": 48,
+    "max_parallel_workers": 2,
+    "max_parallel_workers_per_gather": 2,
+    "max_wal_size_mb": 2048,
+    "max_worker_processes": 4,
+    "min_wal_size_mb": 1024,
+    "random_page_cost": 1.1,
+    "shared_buffers_mb": 829,
+    "work_mem_mb": 39
+  },
+  "productions": 1,
+  "ram_mb": 7922,
+  "security_headroom_mb": 256,
+  "stage_reserve_mb": 0,
+  "stages": 0,
+  "topology": {
+    "http_backend": "127.0.0.1:8069",
+    "mode": "multi_worker_gevent",
+    "websocket_backend": "127.0.0.1:8072"
+  },
+  "usable_mb": 5924
+}
+[dry-run] proposed changes above; no system state modified
+[dry-run] restart may be required for: odoo workers/memory, postgres shared_buffers, docker shm
+SELFUP_POS_EC=0
