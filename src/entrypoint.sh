@@ -23,7 +23,19 @@ soviez_main() {
   soviez_ops_paths_init 2>/dev/null || true
   soviez_cli_parse "$@"
 
+  # Signed platform self-update preflight (mutating commands); read-only is best-effort.
+  if declare -F soviez_platform_self_update_maybe >/dev/null 2>&1; then
+    soviez_platform_self_update_maybe "$@" || {
+      echo "[error] platform self-update preflight failed" >&2
+      exit 1
+    }
+  fi
+
   case "$SOVIEZ_CLI_COMMAND" in
+    version) soviez_cmd_version_run ;;
+    list) soviez_cmd_list_run ;;
+    tune) soviez_cmd_tune_run ;;
+    platform-install) soviez_cmd_platform_install_run ;;
     new) soviez_cmd_new_run ;;
     reattach) soviez_cmd_reattach_run ;;
     stage|stage-reattach)

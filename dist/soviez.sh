@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # GENERATED FILE — do not edit. Built from soviez-sh/src by build/assemble.sh
-# version: 0.24.5.3-registry-gateway
+# version: 0.24.6.1-platform-cli
 set -euo pipefail
 
 # --- begin version.sh ---
@@ -2054,16 +2054,19 @@ soviez_sec_odoo_conf_assert_production_defaults() {
 
 # --- begin security/platform/websocket_topology.sh ---
 # shellcheck shell=bash
-# Certified WebSocket topology (post-cert discrepancy closure).
-# SUPPORTED_AND_CERTIFIED: workers=0, proxy_mode=True, /websocket → HTTP :8069 (loopback).
-# workers>0 / dedicated gevent_port publish: NOT_SUPPORTED.
+# Certified WebSocket topology (owner-approved multi-worker correction).
+# SUPPORTED: workers calculated by sizing engine; when workers>0:
+#   HTTP 127.0.0.1:8069 + gevent/evented 127.0.0.1:8072
+#   Nginx / → 8069, /websocket → 8072
+# Minimal hosts may fall back to workers=0 (single-process compat on 8069).
 
 soviez_ws_certified_workers_max() {
-  printf '0\n'
+  # No hard product cap; sizing engine decides. Report high watermark for docs.
+  printf '64\n'
 }
 
 # soviez_ws_assert_odoo_conf <conf-path>
-# Fails closed if proxy_mode missing/false or workers>0.
+# Requires proxy_mode=True. When workers>0, gevent_port must be 8072.
 soviez_ws_assert_odoo_conf() {
   local conf="${1:-}"
   [[ -f "$conf" ]] || {
@@ -2074,24 +2077,24 @@ soviez_ws_assert_odoo_conf() {
     echo "SEC_CRIT_WS_PROXY_MODE conf=$conf" >&2
     return 1
   fi
-  local workers
+  local workers gevent
   workers="$(grep -Ei '^[[:space:]]*workers[[:space:]]*=' "$conf" | tail -1 | sed -E 's/.*=[[:space:]]*//;s/[[:space:]]*$//' || echo 0)"
   workers="${workers:-0}"
   if [[ "$workers" =~ ^[0-9]+$ ]] && (( workers > 0 )); then
-    echo "SEC_HIGH_WS_WORKERS_UNSUPPORTED workers=$workers (certified topology requires 0)" >&2
-    return 1
-  fi
-  if grep -Eiq '^[[:space:]]*gevent_port[[:space:]]*=' "$conf"; then
-    echo "SEC_HIGH_WS_GEVENT_UNSUPPORTED gevent_port set (NOT_SUPPORTED)" >&2
-    return 1
+    gevent="$(grep -Ei '^[[:space:]]*gevent_port[[:space:]]*=' "$conf" | tail -1 | sed -E 's/.*=[[:space:]]*//;s/[[:space:]]*$//' || echo "")"
+    if [[ "$gevent" != "8072" ]]; then
+      echo "SEC_CRIT_WS_GEVENT_PORT workers=$workers gevent_port=${gevent:-unset} (required 8072)" >&2
+      return 1
+    fi
   fi
   return 0
 }
 
-# soviez_ws_assert_nginx_snippet <conf>
-# Requires /websocket + Upgrade headers; /longpolling optional (compat).
+# soviez_ws_assert_nginx_snippet <conf> [expect_gevent=0|1]
+# Requires /websocket + Upgrade headers. When expect_gevent=1, /websocket must target :8072.
 soviez_ws_assert_nginx_snippet() {
   local conf="${1:-}"
+  local expect_gevent="${2:-0}"
   [[ -f "$conf" ]] || return 1
   grep -q 'location /websocket' "$conf" || {
     echo "SEC_HIGH_WS_NGINX_MISSING_WEBSOCKET" >&2
@@ -2101,12 +2104,32 @@ soviez_ws_assert_nginx_snippet() {
     echo "SEC_HIGH_WS_NGINX_MISSING_UPGRADE" >&2
     return 1
   }
+  if [[ "$expect_gevent" == "1" ]]; then
+    if ! grep -E 'location /websocket' -A20 "$conf" | grep -Eq '127\.0\.0\.1:8072|:8072'; then
+      echo "SEC_CRIT_WS_NGINX_WEBSOCKET_NOT_8072" >&2
+      return 1
+    fi
+  fi
   return 0
 }
 
 # Classify longpolling support for docs/tests.
 soviez_ws_longpolling_status() {
   printf 'COMPATIBILITY_ROUTED\n'
+}
+
+# Expected backends for a given worker count.
+soviez_ws_http_backend() {
+  printf '127.0.0.1:8069\n'
+}
+
+soviez_ws_websocket_backend() {
+  local workers="${1:-0}"
+  if [[ "$workers" =~ ^[0-9]+$ ]] && (( workers > 0 )); then
+    printf '127.0.0.1:8072\n'
+  else
+    printf '127.0.0.1:8069\n'
+  fi
 }
 
 # --- end security/platform/websocket_topology.sh ---
@@ -3015,6 +3038,14 @@ soviez_nginx_s2_render_hardened() {
   local headers_block=""
   local rate_block=""
   local ws_map=""
+  local ws_upstream="${SOVIEZ_NGINX_WS_UPSTREAM:-}"
+  if [[ -z "$ws_upstream" ]]; then
+    if [[ "$upstream" =~ ^(.+):8069$ ]]; then
+      ws_upstream="${BASH_REMATCH[1]}:8072"
+    else
+      ws_upstream="$upstream"
+    fi
+  fi
 
   # Upstream must be localhost/private — reject obvious public IPs in upstream string for Production.
   if [[ "$upstream" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+: ]]; then
@@ -3115,7 +3146,7 @@ server {
 ${rate_block}
 
     location /websocket {
-        proxy_pass http://${upstream};
+        proxy_pass http://${ws_upstream};
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
@@ -3128,7 +3159,7 @@ ${rate_block}
     }
 
     location /longpolling {
-        proxy_pass http://${upstream};
+        proxy_pass http://${ws_upstream};
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
@@ -4861,6 +4892,88 @@ PY
 
 # --- end security/detection/yara_scan.sh ---
 
+# --- begin security/detection/clamav.sh ---
+# shellcheck shell=bash
+# ClamAV integration (complementary to YARA + native scanners).
+
+soviez_clamav_available() {
+  command -v clamdscan >/dev/null 2>&1 || command -v clamscan >/dev/null 2>&1
+}
+
+soviez_clamav_daemon_status() {
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl is-active clamav-daemon 2>/dev/null || systemctl is-active clamav-daemon.service 2>/dev/null || echo inactive
+  else
+    pgrep -x clamd >/dev/null 2>&1 && echo active || echo inactive
+  fi
+}
+
+soviez_clamav_ensure_packages() {
+  # Install only when explicitly requested (mutating harden/tune security path).
+  if soviez_clamav_available; then
+    return 0
+  fi
+  if [[ "${SOVIEZ_CLAMAV_AUTO_INSTALL:-0}" != "1" ]]; then
+    echo "[info] ClamAV not installed (set SOVIEZ_CLAMAV_AUTO_INSTALL=1 to install)" >&2
+    return 0
+  fi
+  if ! command -v apt-get >/dev/null 2>&1; then
+    return 1
+  fi
+  if declare -F soviez_security_apt_wait_locks >/dev/null 2>&1; then
+    soviez_security_apt_wait_locks || return 1
+  fi
+  DEBIAN_FRONTEND=noninteractive apt-get install -y clamav clamav-daemon clamav-freshclam
+}
+
+soviez_clamav_scan_paths() {
+  local out="${1:-}"
+  shift || true
+  local paths=("$@")
+  if ! soviez_clamav_available; then
+    echo '{"status":"N/A","reason":"clamav_missing"}' >"${out:-/dev/stdout}"
+    return 0
+  fi
+  local bin=clamdscan
+  command -v clamdscan >/dev/null 2>&1 || bin=clamscan
+  local raw
+  raw="$(mktemp)"
+  local p rc=0
+  for p in "${paths[@]}"; do
+    [[ -e "$p" ]] || continue
+    # Never recursively on-access scan PGDATA via this helper.
+    case "$p" in
+      */postgresql/*|*/pgdata/*|*/PG_VERSION) continue ;;
+    esac
+    "$bin" --no-summary "$p" >>"$raw" 2>/dev/null || rc=$?
+  done
+  python3 - "$raw" "${out:-/dev/stdout}" "$rc" <<'PY'
+import json,sys
+raw=open(sys.argv[1],encoding="utf-8",errors="replace").read().splitlines()
+out=sys.argv[2]; rc=int(sys.argv[3])
+findings=[l for l in raw if "FOUND" in l]
+status="PASS"
+if findings: status="FAIL"
+elif rc not in (0,1): status="ERROR"
+json.dump({"status":status,"engine":"clamav","findings":findings[:50],"rc":rc}, open(out,"w") if out!="/dev/stdout" else sys.stdout, indent=2)
+if out=="/dev/stdout":
+  print()
+PY
+  rm -f "$raw"
+}
+
+soviez_clamav_on_access_scope() {
+  # Documented/planned on-access roots (not PGDATA).
+  cat <<EOF
+filestore
+uploads
+/opt/soviez
+/usr/local
+EOF
+}
+
+# --- end security/detection/clamav.sh ---
+
 # --- begin security/detection/host_integrity.sh ---
 # shellcheck shell=bash
 # Security Gate S3 — lightweight host integrity (native fingerprints; AIDE deferred).
@@ -6042,13 +6155,19 @@ soviez_q_filestore_scan() {
     fi
     local st
     st="$(soviez_s3_yara_scan_paths "$yj" "${paths[@]}" 2>/dev/null || echo N/A)"
+    # Complementary ClamAV scan (never replaces YARA); do not treat PEM/keys as malware.
+    if declare -F soviez_clamav_scan_paths >/dev/null 2>&1; then
+      local cj="$d/filestore/clamav.json"
+      soviez_clamav_scan_paths "$cj" "${paths[@]}" >/dev/null 2>&1 || true
+    fi
     python3 - "$yj" "$out" "$st" <<'PY'
 import json,sys
 try: y=json.load(open(sys.argv[1]))
 except Exception: y={"findings":[]}
 st=sys.argv[3]
 json.dump({"status":st,"findings":y.get("findings") or [],"mutates_attachments":False,
-           "code":"SEC_WARN_FILESTORE_SUSPICIOUS_FILE" if st=="FAIL" else "SEC_OK"}, open(sys.argv[2],"w"), indent=2)
+           "code":"SEC_WARN_FILESTORE_SUSPICIOUS_FILE" if st=="FAIL" else "SEC_OK",
+           "engines":["yara","clamav_complementary"]}, open(sys.argv[2],"w"), indent=2)
 print(st)
 PY
   else
@@ -9415,6 +9534,20 @@ soviez_docker_provision_start() {
       spec="127.0.0.1:${host_port}:8069"
     fi
     publish_args=(-p "$spec")
+    # Multi-worker gevent/evented port (loopback only). Host port = http+3 or SOVIEZ_GEVENT_HOST_PORT.
+    local gevent_host="${SOVIEZ_GEVENT_HOST_PORT:-}"
+    if [[ -z "$gevent_host" && "$host_port" =~ ^[0-9]+$ ]]; then
+      gevent_host=$((host_port + 3))
+    fi
+    if [[ -n "$gevent_host" && "${SOVIEZ_PUBLISH_GEVENT:-1}" == "1" ]]; then
+      local gspec
+      if declare -F soviez_sec_odoo_loopback_publish_spec >/dev/null 2>&1; then
+        gspec="$(soviez_sec_odoo_loopback_publish_spec "$gevent_host" 8072)"
+      else
+        gspec="127.0.0.1:${gevent_host}:8072"
+      fi
+      publish_args+=(-p "$gspec")
+    fi
   fi
 
   if docker ps -a --format '{{.Names}}' | grep -qx "$container_name"; then
@@ -9635,8 +9768,17 @@ server {
 }
 EOF
   else
+    local ws_upstream="${SOVIEZ_NGINX_WS_UPSTREAM:-}"
+    if [[ -z "$ws_upstream" ]]; then
+      # Owner-approved topology: HTTP :8069, WebSocket/gevent :8072 on same host.
+      if [[ "$upstream" =~ ^(.+):8069$ ]]; then
+        ws_upstream="${BASH_REMATCH[1]}:8072"
+      else
+        ws_upstream="$upstream"
+      fi
+    fi
     cat > "$staged" <<EOF
-# SOVIEZ_OWNED env_id=${env_id} domain=${domain} module=ssl_lifecycle version=phase12-ws1
+# SOVIEZ_OWNED env_id=${env_id} domain=${domain} module=ssl_lifecycle version=phase12-ws2
 server {
     listen 80;
     server_name ${domain};
@@ -9652,7 +9794,7 @@ server {
     proxy_send_timeout 720s;
 
     location /websocket {
-        proxy_pass http://${upstream};
+        proxy_pass http://${ws_upstream};
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection \$connection_upgrade;
@@ -9663,9 +9805,9 @@ server {
         proxy_read_timeout 720s;
     }
 
-    # Compatibility: same upstream (certified workers=0 → :8069 topology)
+    # Compatibility (Odoo 18): longpolling → evented backend when multi-worker
     location /longpolling {
-        proxy_pass http://${upstream};
+        proxy_pass http://${ws_upstream};
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection \$connection_upgrade;
@@ -11991,6 +12133,14 @@ soviez_stage_network_name_for() {
   printf 'soviez-net-stage-%s' "$1"
 }
 
+soviez_stage_inventory_corrupt_evidence_path() {
+  local idx
+  idx="$(soviez_stage_inventory_index)"
+  printf '%s.corrupt.%s\n' "$idx" "$(date -u +%Y%m%dT%H%M%SZ)"
+}
+
+# Load index JSON; on corrupt content: preserve evidence, clean operator error, non-zero exit.
+# Never prints Python traceback to the operator.
 soviez_stage_inventory_load_index() {
   local idx
   idx="$(soviez_stage_inventory_index)"
@@ -11998,7 +12148,35 @@ soviez_stage_inventory_load_index() {
     printf '{"stages":[]}\n'
     return 0
   fi
-  cat "$idx"
+  local raw out
+  raw="$(cat "$idx")"
+  out="$(mktemp)"
+  if ! SOVIEZ_IDX="$raw" python3 - "$out" <<'PY' 2>/dev/null
+import json, os, sys
+out_path = sys.argv[1]
+try:
+    data = json.loads(os.environ["SOVIEZ_IDX"])
+    if not isinstance(data, dict):
+        raise ValueError("index root must be object")
+    data.setdefault("stages", [])
+    if not isinstance(data["stages"], list):
+        raise ValueError("stages must be list")
+    open(out_path, "w", encoding="utf-8").write(json.dumps(data) + "\n")
+except Exception:
+    sys.exit(2)
+PY
+  then
+    rm -f "$out"
+    local evidence
+    evidence="$(soviez_stage_inventory_corrupt_evidence_path)"
+    cp -f "$idx" "$evidence" 2>/dev/null || true
+    echo "[error] STAGE_INVENTORY_CORRUPT: stage inventory JSON is unreadable" >&2
+    echo "[error] evidence preserved: ${evidence}" >&2
+    echo "[error] no automatic repair performed; fix or restore inventory manually" >&2
+    return 2
+  fi
+  cat "$out"
+  rm -f "$out"
 }
 
 soviez_stage_inventory_atomic_write() {
@@ -12015,9 +12193,17 @@ soviez_stage_inventory_atomic_write() {
 }
 
 soviez_stage_inventory_list_ids() {
-  SOVIEZ_IDX="$(soviez_stage_inventory_load_index)" python3 - <<'PY'
-import json, os
-data=json.loads(os.environ["SOVIEZ_IDX"])
+  local idx_json
+  if ! idx_json="$(soviez_stage_inventory_load_index)"; then
+    return 2
+  fi
+  SOVIEZ_IDX="$idx_json" python3 - <<'PY'
+import json, os, sys
+try:
+    data=json.loads(os.environ["SOVIEZ_IDX"])
+except Exception:
+    print("[error] STAGE_INVENTORY_CORRUPT: cannot parse stage inventory", file=sys.stderr)
+    sys.exit(2)
 for s in data.get("stages",[]):
     sid=s.get("stage_id") or ""
     if sid:
@@ -13301,6 +13487,11 @@ soviez_stage_op_merge() {
 
 soviez_stage_cmd_list() {
   soviez_stage_paths_init
+  local ids
+  if ! ids="$(soviez_stage_inventory_list_ids)"; then
+    # Corrupt inventory: clean message already printed; no traceback.
+    return 2
+  fi
   echo "Stage ID | Domain | Status | Parent | Created | Cert"
   local id
   while IFS= read -r id; do
@@ -13308,14 +13499,14 @@ soviez_stage_cmd_list() {
     local ident domain status parent created cert
     ident="$(soviez_stage_inventory_find "$id" 2>/dev/null || true)"
     [[ -n "$ident" ]] || continue
-    domain="$(soviez_json_get "$ident" stage_domain)"
-    status="$(soviez_json_get "$ident" lifecycle_status)"
-    parent="$(soviez_json_get "$ident" parent_production_tenant_id)"
-    created="$(soviez_json_get "$ident" created_at)"
+    domain="$(soviez_json_get "$ident" stage_domain 2>/dev/null || echo "-")"
+    status="$(soviez_json_get "$ident" lifecycle_status 2>/dev/null || echo unknown)"
+    parent="$(soviez_json_get "$ident" parent_production_tenant_id 2>/dev/null || echo "-")"
+    created="$(soviez_json_get "$ident" created_at 2>/dev/null || echo "-")"
     cert="$(soviez_json_get "$ident" origin_certificate_path 2>/dev/null || echo none)"
     [[ -n "$cert" && "$cert" != "null" && -f "$cert" ]] && cert="valid" || cert="missing"
     printf '%s | %s | %s | %s | %s | %s\n' "$id" "$domain" "$status" "$parent" "$created" "$cert"
-  done < <(soviez_stage_inventory_list_ids)
+  done <<<"$ids"
 }
 
 soviez_stage_cmd_status() {
@@ -25311,6 +25502,867 @@ PY
 
 # --- end restore/engine.sh ---
 
+# --- begin platform/paths.sh ---
+# shellcheck shell=bash
+# Stable platform layout (customer PATH contract).
+
+SOVIEZ_PLATFORM_ROOT_DEFAULT="/opt/soviez/platform"
+SOVIEZ_PLATFORM_BIN_DEFAULT="/usr/local/bin/soviez.sh"
+SOVIEZ_PLATFORM_CHANNEL_DEFAULT="stable"
+
+soviez_platform_root() {
+  printf '%s\n' "${SOVIEZ_PLATFORM_ROOT:-$SOVIEZ_PLATFORM_ROOT_DEFAULT}"
+}
+
+soviez_platform_current_dir() {
+  printf '%s/current\n' "$(soviez_platform_root)"
+}
+
+soviez_platform_previous_dir() {
+  printf '%s/previous\n' "$(soviez_platform_root)"
+}
+
+soviez_platform_candidates_dir() {
+  printf '%s/candidates\n' "$(soviez_platform_root)"
+}
+
+soviez_platform_payload() {
+  printf '%s/soviez.sh\n' "$(soviez_platform_current_dir)"
+}
+
+soviez_platform_bin() {
+  printf '%s\n' "${SOVIEZ_PLATFORM_BIN:-$SOVIEZ_PLATFORM_BIN_DEFAULT}"
+}
+
+soviez_platform_lock_path() {
+  local root
+  root="${SOVIEZ_ROOT:-/var/soviez}"
+  if [[ "${SOVIEZ_TEST_MODE:-0}" == "1" ]]; then
+    root="${SOVIEZ_ROOT}/locks"
+    mkdir -p "$root"
+    printf '%s/platform-update.lock\n' "$root"
+    return 0
+  fi
+  mkdir -p "${root}/locks" 2>/dev/null || true
+  printf '%s/locks/platform-update.lock\n' "$root"
+}
+
+soviez_platform_channel() {
+  printf '%s\n' "${SOVIEZ_PLATFORM_CHANNEL:-$SOVIEZ_PLATFORM_CHANNEL_DEFAULT}"
+}
+
+soviez_platform_digest_file() {
+  printf '%s/soviez.sh.sha256\n' "$(soviez_platform_current_dir)"
+}
+
+soviez_platform_installed_digest() {
+  local f
+  f="$(soviez_platform_digest_file)"
+  if [[ -f "$f" ]]; then
+    awk 'NR==1{print $1; exit}' "$f"
+    return 0
+  fi
+  local payload
+  payload="$(soviez_platform_payload)"
+  if [[ -f "$payload" ]] && declare -F soviez_sha256_file >/dev/null 2>&1; then
+    soviez_sha256_file "$payload"
+    return 0
+  fi
+  if [[ -f "$payload" ]]; then
+    shasum -a 256 "$payload" 2>/dev/null | awk '{print $1}' || \
+      sha256sum "$payload" 2>/dev/null | awk '{print $1}' || printf 'unknown\n'
+    return 0
+  fi
+  printf 'unknown\n'
+}
+
+# --- end platform/paths.sh ---
+
+# --- begin platform/trust.sh ---
+# shellcheck shell=bash
+# Platform self-update trust: mandatory Ed25519 public verification keys.
+
+# Bundled staging/certification public keys (PEM). Private keys never ship here.
+SOVIEZ_PLATFORM_TRUST_KEY_ID_STAGING_DEFAULT="soviez-platform-staging-2026-08"
+
+soviez_platform_openssl() {
+  if declare -F soviez_offline_openssl >/dev/null 2>&1; then
+    local _o
+    _o="$(soviez_offline_openssl 2>/dev/null || true)"
+    if [[ -n "$_o" && -x "$_o" ]]; then
+      printf '%s\n' "$_o"
+      return 0
+    fi
+  fi
+  local c
+  for c in "${SOVIEZ_OPENSSL:-}" /opt/homebrew/bin/openssl /usr/local/opt/openssl@3/bin/openssl /usr/local/bin/openssl; do
+    [[ -n "$c" && -x "$c" ]] || continue
+    if "$c" version 2>/dev/null | grep -qi 'OpenSSL'; then
+      printf '%s\n' "$c"
+      return 0
+    fi
+  done
+  command -v openssl
+}
+
+soviez_platform_trust_dir() {
+  # Prefer bundled keys next to assembled payload / repo share/.
+  local candidates=(
+    "${SOVIEZ_PLATFORM_TRUST_DIR:-}"
+    "${SOVIEZ_SH_ROOT:-}/share/platform-trust"
+    "$(soviez_platform_current_dir 2>/dev/null || true)/trust"
+    "/opt/soviez/platform/current/trust"
+    "/usr/local/share/soviez/platform-trust"
+  )
+  local d
+  for d in "${candidates[@]}"; do
+    [[ -n "$d" && -d "$d" ]] || continue
+    printf '%s\n' "$d"
+    return 0
+  done
+  # Fallback: relative to this assembled script location is unreliable; empty.
+  printf '\n'
+}
+
+soviez_platform_trust_pubkey_for_id() {
+  local key_id="${1:-}"
+  if [[ -n "${SOVIEZ_PLATFORM_TRUST_PUBKEY:-}" && -f "${SOVIEZ_PLATFORM_TRUST_PUBKEY}" ]]; then
+    printf '%s\n' "$SOVIEZ_PLATFORM_TRUST_PUBKEY"
+    return 0
+  fi
+  local dir
+  dir="$(soviez_platform_trust_dir)"
+  [[ -n "$dir" ]] || return 1
+  if [[ -n "$key_id" ]]; then
+    if [[ -f "${dir}/${key_id}.pub" ]]; then
+      printf '%s\n' "${dir}/${key_id}.pub"
+      return 0
+    fi
+    if [[ -f "${dir}/keys.json" ]]; then
+      local path
+      path="$(SOVIEZ_K="$key_id" python3 - "$dir/keys.json" <<'PY'
+import json,os,sys
+d=json.load(open(sys.argv[1],encoding="utf-8"))
+kid=os.environ.get("SOVIEZ_K") or ""
+keys=d.get("keys") or {}
+if kid in keys:
+  p=keys[kid].get("public_key_path") or keys[kid].get("path") or ""
+  print(p)
+else:
+  print("")
+PY
+)"
+      if [[ -n "$path" ]]; then
+        [[ "$path" == /* ]] || path="${dir}/${path}"
+        if [[ -f "$path" ]]; then
+          printf '%s\n' "$path"
+          return 0
+        fi
+      fi
+    fi
+    # Explicit unknown signer_key_id → fail closed (no silent fallback).
+    return 1
+  fi
+  # No key id: default staging public key
+  if [[ -f "${dir}/staging.ed25519.pub" ]]; then
+    printf '%s\n' "${dir}/staging.ed25519.pub"
+    return 0
+  fi
+  return 1
+}
+
+# Canonical signing bytes for a platform-release manifest.
+# Signs JSON object with signature/signature_b64url/signed/signed_at removed,
+# sort_keys=True, separators=(",",":") — UTF-8, no trailing newline.
+soviez_platform_manifest_canonical_payload() {
+  local manifest="$1"
+  python3 - "$manifest" <<'PY'
+import json,sys
+m=json.load(open(sys.argv[1],encoding="utf-8"))
+for k in ("signature","signature_b64url","signed","signed_at","signature_algorithm"):
+    # Keep signature_algorithm OUT of signed payload? Spec says algorithm is in manifest;
+    # include algorithm + key id in signed body for binding.
+    pass
+drop=("signature","signature_b64url","signed","signed_at")
+body={k:v for k,v in m.items() if k not in drop}
+print(json.dumps(body, sort_keys=True, separators=(",",":"), ensure_ascii=False), end="")
+PY
+}
+
+soviez_platform_version_cmp() {
+  # Echo: -1 if a<b, 0 if equal, 1 if a>b (sort -V semantics on numeric-ish versions).
+  local a="${1#v}" b="${2#v}"
+  if [[ "$a" == "$b" ]]; then
+    printf '0\n'
+    return 0
+  fi
+  local newest
+  newest="$(printf '%s\n%s\n' "$a" "$b" | sort -V | tail -n1)"
+  if [[ "$newest" == "$a" ]]; then
+    printf '1\n'
+  else
+    printf '-1\n'
+  fi
+}
+
+soviez_platform_ed25519_verify() {
+  local payload="$1" signature_b64url="$2" pubkey="$3"
+  local ossl sig_bin msgf pad padded
+  ossl="$(soviez_platform_openssl)"
+  [[ -f "$pubkey" ]] || {
+    echo "[error] platform trust public key missing" >&2
+    return 1
+  }
+  sig_bin="$(mktemp "${TMPDIR:-/tmp}/soviez-plat-sig.XXXXXX")"
+  msgf="$(mktemp "${TMPDIR:-/tmp}/soviez-plat-msg.XXXXXX")"
+  printf '%s' "$payload" >"$msgf"
+  pad=$(( (4 - ${#signature_b64url} % 4) % 4 ))
+  padded="$signature_b64url"
+  while [[ $pad -gt 0 ]]; do padded="${padded}="; pad=$((pad - 1)); done
+  if ! printf '%s' "$padded" | tr '_-' '/+' | "$ossl" base64 -d -A -out "$sig_bin" 2>/dev/null; then
+    rm -f "$sig_bin" "$msgf"
+    echo "[error] platform signature decode failed" >&2
+    return 1
+  fi
+  local siglen
+  siglen="$(wc -c <"$sig_bin" | tr -d ' ')"
+  if [[ "$siglen" != "64" ]]; then
+    rm -f "$sig_bin" "$msgf"
+    echo "[error] platform signature length invalid (expected 64 Ed25519 bytes, got ${siglen})" >&2
+    return 1
+  fi
+  if ! "$ossl" pkeyutl -verify -pubin -inkey "$pubkey" -rawin -in "$msgf" -sigfile "$sig_bin" >/dev/null 2>&1; then
+    rm -f "$sig_bin" "$msgf"
+    echo "[error] platform Ed25519 signature verification failed" >&2
+    return 1
+  fi
+  rm -f "$sig_bin" "$msgf"
+  return 0
+}
+
+soviez_platform_sign_payload() {
+  # Release-control only: signs with private key path. Never called on customer hosts.
+  local payload="$1" privkey="$2"
+  local ossl sig_bin msgf
+  ossl="$(soviez_platform_openssl)"
+  [[ -f "$privkey" ]] || return 1
+  sig_bin="$(mktemp "${TMPDIR:-/tmp}/soviez-plat-ssig.XXXXXX")"
+  msgf="$(mktemp "${TMPDIR:-/tmp}/soviez-plat-smsg.XXXXXX")"
+  printf '%s' "$payload" >"$msgf"
+  if ! "$ossl" pkeyutl -sign -inkey "$privkey" -rawin -in "$msgf" -out "$sig_bin" 2>/dev/null; then
+    rm -f "$sig_bin" "$msgf"
+    return 1
+  fi
+  "$ossl" base64 -A -in "$sig_bin" | tr '+/' '-_' | tr -d '='
+  rm -f "$sig_bin" "$msgf"
+}
+
+# --- end platform/trust.sh ---
+
+# --- begin platform/install.sh ---
+# shellcheck shell=bash
+# Install modular platform payload + stable PATH launcher.
+
+soviez_platform_render_launcher() {
+  local payload_path="$1"
+  # Always embed an absolute payload path so CWD does not matter.
+  if command -v realpath >/dev/null 2>&1; then
+    payload_path="$(realpath "$payload_path" 2>/dev/null || printf '%s' "$payload_path")"
+  elif [[ "${payload_path}" != /* ]]; then
+    payload_path="$(cd "$(dirname "$payload_path")" 2>/dev/null && pwd)/$(basename "$payload_path")"
+  fi
+  cat <<EOF
+#!/usr/bin/env bash
+# Soviez.sh stable customer launcher — do not edit.
+# Delegates to the active platform payload.
+set -euo pipefail
+PAYLOAD="${payload_path}"
+if [[ ! -x "\$PAYLOAD" && ! -f "\$PAYLOAD" ]]; then
+  echo "[error] Soviez platform payload missing: \$PAYLOAD" >&2
+  echo "Re-run the official installer: curl -sSL https://soviez.sh | sudo bash" >&2
+  exit 127
+fi
+exec bash "\$PAYLOAD" "\$@"
+EOF
+}
+
+soviez_platform_install_from_file() {
+  local src="$1"
+  local channel="${2:-$(soviez_platform_channel)}"
+  [[ -f "$src" ]] || {
+    echo "[error] platform install source missing: $src" >&2
+    return 1
+  }
+
+  local root current previous candidates bin tmpdir digest payload_dest launcher_tmp
+  root="$(soviez_platform_root)"
+  current="$(soviez_platform_current_dir)"
+  previous="$(soviez_platform_previous_dir)"
+  candidates="$(soviez_platform_candidates_dir)"
+  bin="$(soviez_platform_bin)"
+
+  if [[ "${SOVIEZ_TEST_MODE:-0}" == "1" ]]; then
+    root="${SOVIEZ_ROOT}/platform"
+    current="${root}/current"
+    previous="${root}/previous"
+    candidates="${root}/candidates"
+    bin="${SOVIEZ_ROOT}/bin/soviez.sh"
+    mkdir -p "${SOVIEZ_ROOT}/bin"
+  fi
+
+  chmod -p "$current" "$previous" "$candidates"
+  # Install trust public keys alongside payload (never private keys).
+  local trust_src=""
+  if [[ -d "${SOVIEZ_SH_ROOT:-}/share/platform-trust" ]]; then
+    trust_src="${SOVIEZ_SH_ROOT}/share/platform-trust"
+  elif [[ -d "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/../share/platform-trust" 2>/dev/null && pwd)" ]]; then
+    trust_src="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/../share/platform-trust" && pwd)"
+  fi
+  if [[ -z "$trust_src" && -d "${SOVIEZ_PLATFORM_TRUST_DIR:-}" ]]; then
+    trust_src="$SOVIEZ_PLATFORM_TRUST_DIR"
+  fi
+  tmpdir="$(mktemp -d "${candidates}/install.XXXXXX")"
+  cp -f "$src" "${tmpdir}/soviez.sh"
+  chmod 755 "${tmpdir}/soviez.sh"
+  if [[ -n "$trust_src" && -d "$trust_src" ]]; then
+    mkdir -p "${tmpdir}/trust"
+    # Public material only
+    cp -f "$trust_src"/*.pub "${tmpdir}/trust/" 2>/dev/null || true
+    cp -f "$trust_src"/keys.json "${tmpdir}/trust/" 2>/dev/null || true
+    # Refuse any private key leakage into install tree
+    if grep -Rql 'BEGIN PRIVATE KEY' "${tmpdir}/trust" 2>/dev/null; then
+      echo "[error] refused to install trust tree containing private key material" >&2
+      rm -rf "$tmpdir"
+      return 1
+    fi
+  fi
+  if declare -F soviez_sha256_file >/dev/null 2>&1; then
+    digest="$(soviez_sha256_file "${tmpdir}/soviez.sh")"
+  else
+    digest="$(shasum -a 256 "${tmpdir}/soviez.sh" 2>/dev/null | awk '{print $1}')"
+  fi
+  printf '%s  soviez.sh\n' "$digest" >"${tmpdir}/soviez.sh.sha256"
+  printf '%s\n' "$(soviez_version 2>/dev/null || echo unknown)" >"${tmpdir}/VERSION"
+  printf '%s\n' "$channel" >"${tmpdir}/CHANNEL"
+
+  # Rotate current → previous when replacing.
+  if [[ -f "${current}/soviez.sh" ]]; then
+    rm -rf "${previous}.bak" 2>/dev/null || true
+    if [[ -d "$previous" ]]; then
+      mv "$previous" "${previous}.bak" 2>/dev/null || rm -rf "$previous"
+    fi
+    mkdir -p "$previous"
+    cp -a "${current}/." "$previous/" 2>/dev/null || true
+  fi
+
+  payload_dest="${current}/soviez.sh"
+  cp -f "${tmpdir}/soviez.sh" "$payload_dest"
+  cp -f "${tmpdir}/soviez.sh.sha256" "${current}/soviez.sh.sha256"
+  cp -f "${tmpdir}/VERSION" "${current}/VERSION"
+  cp -f "${tmpdir}/CHANNEL" "${current}/CHANNEL"
+  if [[ -d "${tmpdir}/trust" ]]; then
+    mkdir -p "${current}/trust"
+    cp -a "${tmpdir}/trust/." "${current}/trust/"
+  fi
+  chmod 755 "$payload_dest"
+  rm -rf "$tmpdir" "${previous}.bak" 2>/dev/null || true
+
+  mkdir -p "$(dirname "$bin")"
+  launcher_tmp="$(mktemp "${TMPDIR:-/tmp}/soviez-launcher.XXXXXX")"
+  soviez_platform_render_launcher "$payload_dest" >"$launcher_tmp"
+  chmod 755 "$launcher_tmp"
+  mv -f "$launcher_tmp" "$bin"
+  chmod 755 "$bin"
+
+  echo "[ok] installed platform payload → ${payload_dest}"
+  echo "[ok] installed launcher → ${bin}"
+  echo "[ok] digest sha256:${digest}"
+}
+
+# Convenience: install currently executing assembled script as platform (when run from dist).
+soviez_platform_install_self_payload() {
+  local self="${BASH_SOURCE[0]:-${0:-}}"
+  # When assembled, BASH_SOURCE[0] is the dist script path for functions defined in it —
+  # prefer SOVIEZ_PLATFORM_INSTALL_SRC or the running $0 when it is the payload.
+  local src="${SOVIEZ_PLATFORM_INSTALL_SRC:-}"
+  if [[ -z "$src" ]]; then
+    if [[ -f "${0:-}" && "$(basename -- "${0}")" == "soviez.sh" ]]; then
+      src="$0"
+    elif [[ -f "${SOVIEZ_SH_ROOT:-}/dist/soviez.sh" ]]; then
+      src="${SOVIEZ_SH_ROOT}/dist/soviez.sh"
+    else
+      echo "[error] cannot locate platform payload to install" >&2
+      return 1
+    fi
+  fi
+  soviez_platform_install_from_file "$src" "$(soviez_platform_channel)"
+}
+
+# --- end platform/install.sh ---
+
+# --- begin platform/self_update.sh ---
+# shellcheck shell=bash
+# Signed Soviez.sh platform self-update (NOT ERP product update).
+# Connected path: mandatory Ed25519 + SHA256 (fail closed). No unsigned fallback.
+
+soviez_platform_cmd_is_mutating() {
+  case "${1:-}" in
+    new|stage|stage-reattach|update|restore|restore-as-stage|security-harden|\
+    migration-bootstrap-destination|migration-pair|migration-transfer-start|\
+    migration-activate-destination|migration-cutover-start|migration-cutover-rollback|\
+    tune|platform-install|ssl-renew|ssl-repair|backup|backup-import|backup-delete|\
+    backup-retention-cleanup|stage-drop|stage-retention-run|stage-retention-extend)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+soviez_platform_cmd_is_readonly() {
+  case "${1:-}" in
+    version|list|stage-list|stage-status|operations-list|operation-status|operation-logs|\
+    security-status|security-report|ssl-status|backup-list|backup-show|backup-verify|\
+    backup-retention-status|backup-destination-list|help|"")
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+soviez_platform_manifest_url() {
+  if [[ -n "${SOVIEZ_PLATFORM_MANIFEST_URL:-}" ]]; then
+    printf '%s\n' "$SOVIEZ_PLATFORM_MANIFEST_URL"
+    return 0
+  fi
+  local channel
+  channel="$(soviez_platform_channel)"
+  # Default customer channel remains stable on main; staging/certification use explicit channel.
+  printf 'https://raw.githubusercontent.com/Soviez/soviez-deploy/main/platform-release/%s/manifest.json\n' "$channel"
+}
+
+soviez_platform_lock_acquire() {
+  local lock
+  lock="$(soviez_platform_lock_path)"
+  mkdir -p "$(dirname "$lock")"
+  exec 9>"$lock"
+  if ! flock -n 9; then
+    echo "[info] waiting for platform update lock..." >&2
+    flock 9
+  fi
+}
+
+soviez_platform_lock_release() {
+  flock -u 9 2>/dev/null || true
+}
+
+# Verify candidate: Ed25519 (mandatory) AND SHA256 (mandatory). Fail closed.
+soviez_platform_verify_candidate() {
+  local candidate="$1" manifest="$2"
+  [[ -f "$candidate" && -f "$manifest" ]] || {
+    echo "[error] platform verify: candidate or manifest missing" >&2
+    return 1
+  }
+
+  local schema algo key_id signed signature expected actual channel version
+  schema="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1],encoding="utf-8")).get("schema") or "")' "$manifest")"
+  algo="$(python3 -c 'import json,sys; print((json.load(open(sys.argv[1],encoding="utf-8")).get("signature_algorithm") or "").lower())' "$manifest")"
+  key_id="$(python3 -c 'import json,sys; m=json.load(open(sys.argv[1],encoding="utf-8")); print(m.get("signer_key_id") or m.get("key_id") or "")' "$manifest")"
+  signed="$(python3 -c 'import json,sys; print(str(json.load(open(sys.argv[1],encoding="utf-8")).get("signed","")).lower())' "$manifest")"
+  signature="$(python3 -c 'import json,sys; m=json.load(open(sys.argv[1],encoding="utf-8")); print(m.get("signature_b64url") or m.get("signature") or "")' "$manifest")"
+  expected="$(python3 -c 'import json,sys; m=json.load(open(sys.argv[1],encoding="utf-8")); print((m.get("sha256") or m.get("digest") or "").replace("sha256:",""))' "$manifest")"
+  version="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1],encoding="utf-8")).get("version") or "")' "$manifest")"
+  channel="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1],encoding="utf-8")).get("channel") or "")' "$manifest")"
+
+  if [[ -z "$schema" || "$schema" != soviez.platform_release.v1 ]]; then
+    echo "[error] platform security: malformed manifest schema=${schema:-missing}" >&2
+    return 1
+  fi
+  if [[ "$signed" != "true" && "$signed" != "1" ]]; then
+    echo "[error] platform security: manifest not marked signed" >&2
+    return 1
+  fi
+  if [[ -z "$signature" ]]; then
+    echo "[error] platform security: missing Ed25519 signature" >&2
+    return 1
+  fi
+  case "$signature" in
+    ok|valid|fixture|tampered|invalid|INVALID|TAMPERED)
+      echo "[error] platform security: non-cryptographic signature refused" >&2
+      return 1
+      ;;
+  esac
+  if [[ "$algo" != "ed25519" ]]; then
+    echo "[error] platform security: unsupported signature_algorithm=${algo:-missing} (required ed25519)" >&2
+    return 1
+  fi
+  if [[ -z "$expected" || ${#expected} -ne 64 ]]; then
+    echo "[error] platform security: missing/invalid sha256 in manifest" >&2
+    return 1
+  fi
+  if [[ -z "$version" ]]; then
+    echo "[error] platform security: manifest missing version" >&2
+    return 1
+  fi
+
+  local pubkey
+  if ! pubkey="$(soviez_platform_trust_pubkey_for_id "$key_id")"; then
+    echo "[error] platform security: no trusted public key for signer_key_id=${key_id:-unknown}" >&2
+    return 1
+  fi
+
+  local payload
+  payload="$(soviez_platform_manifest_canonical_payload "$manifest")" || {
+    echo "[error] platform security: cannot build canonical signing payload" >&2
+    return 1
+  }
+  if ! soviez_platform_ed25519_verify "$payload" "$signature" "$pubkey"; then
+    return 1
+  fi
+
+  if declare -F soviez_sha256_file >/dev/null 2>&1; then
+    actual="$(soviez_sha256_file "$candidate")"
+  else
+    actual="$(shasum -a 256 "$candidate" | awk '{print $1}')"
+  fi
+  if [[ "$actual" != "$expected" ]]; then
+    echo "[error] platform security: SHA256 mismatch expected=$expected actual=$actual" >&2
+    return 1
+  fi
+
+  # Candidate must embed the claimed version (when assembled header present).
+  if grep -q 'version:' "$candidate" 2>/dev/null; then
+    local embedded
+    embedded="$(grep -E '^# version:' "$candidate" | head -1 | sed 's/^# version:[[:space:]]*//' | tr -d '[:space:]')"
+    if [[ -n "$embedded" && "$embedded" != "$version" ]]; then
+      echo "[error] platform security: candidate version mismatch manifest=$version embedded=$embedded" >&2
+      return 1
+    fi
+  fi
+
+  # Channel binding when present
+  if [[ -n "$channel" && -n "${SOVIEZ_PLATFORM_CHANNEL:-}" && "$channel" != "${SOVIEZ_PLATFORM_CHANNEL}" ]]; then
+    if [[ "${SOVIEZ_PLATFORM_ALLOW_CHANNEL_MISMATCH:-0}" != "1" ]]; then
+      echo "[error] platform security: channel mismatch manifest=$channel local=${SOVIEZ_PLATFORM_CHANNEL}" >&2
+      return 1
+    fi
+  fi
+  return 0
+}
+
+soviez_platform_fetch_manifest() {
+  local out="$1"
+  local url
+  url="$(soviez_platform_manifest_url)"
+  if [[ -n "${SOVIEZ_PLATFORM_MANIFEST_FILE:-}" && -f "${SOVIEZ_PLATFORM_MANIFEST_FILE}" ]]; then
+    cp -f "$SOVIEZ_PLATFORM_MANIFEST_FILE" "$out"
+    return 0
+  fi
+  if [[ "${SOVIEZ_TEST_MODE:-0}" == "1" && -f "${SOVIEZ_ROOT:-}/platform-manifest.json" ]]; then
+    cp -f "${SOVIEZ_ROOT}/platform-manifest.json" "$out"
+    return 0
+  fi
+  command -v curl >/dev/null 2>&1 || return 1
+  curl -fsSL --connect-timeout 3 --max-time 30 "$url" -o "$out"
+}
+
+soviez_platform_self_update_maybe() {
+  local cmd="${SOVIEZ_CLI_COMMAND:-}"
+  if [[ "${SOVIEZ_SKIP_PLATFORM_UPDATE:-}" == "1" ]]; then
+    return 0
+  fi
+
+  local require_update=0
+  local readonly=0
+  if soviez_platform_cmd_is_mutating "$cmd"; then
+    require_update=1
+  elif soviez_platform_cmd_is_readonly "$cmd"; then
+    readonly=1
+  fi
+
+  if [[ "${SOVIEZ_OFFLINE:-0}" == "1" ]]; then
+    return 0
+  fi
+
+  local tmp_man
+  tmp_man="$(mktemp)"
+  if ! soviez_platform_fetch_manifest "$tmp_man"; then
+    rm -f "$tmp_man"
+    # Network/service unavailable — never block read-only; mutating continues unless STRICT.
+    if [[ "$readonly" -eq 1 ]]; then
+      return 0
+    fi
+    if [[ "$require_update" -eq 1 && "${SOVIEZ_PLATFORM_UPDATE_STRICT:-0}" == "1" ]]; then
+      echo "[error] platform update service unavailable (network/manifest unreachable)" >&2
+      return 1
+    fi
+    echo "[warn] platform update check skipped (service unavailable); continuing with installed platform" >&2
+    return 0
+  fi
+
+  # Malformed JSON before crypto → treat as security failure for mutating.
+  if ! python3 -c 'import json,sys; json.load(open(sys.argv[1],encoding="utf-8"))' "$tmp_man" 2>/dev/null; then
+    rm -f "$tmp_man"
+    if [[ "$readonly" -eq 1 ]]; then
+      echo "[warn] platform manifest malformed; continuing local command" >&2
+      return 0
+    fi
+    echo "[error] platform security: malformed release manifest" >&2
+    return 1
+  fi
+
+  local remote_ver local_ver artifact_url cmp
+  remote_ver="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1],encoding="utf-8")).get("version") or "")' "$tmp_man")"
+  local_ver="$(soviez_version)"
+  if [[ -z "$remote_ver" ]]; then
+    rm -f "$tmp_man"
+    if [[ "$readonly" -eq 1 ]]; then return 0; fi
+    echo "[error] platform security: manifest missing version" >&2
+    return 1
+  fi
+  if [[ "$remote_ver" == "$local_ver" ]]; then
+    rm -f "$tmp_man"
+    return 0
+  fi
+
+  cmp="$(soviez_platform_version_cmp "$local_ver" "$remote_ver")"
+  if [[ "$cmp" == "1" ]]; then
+    # Installed newer than remote — no automatic downgrade.
+    rm -f "$tmp_man"
+    echo "[info] platform remote $remote_ver is older than installed $local_ver; ignoring (no downgrade)" >&2
+    return 0
+  fi
+
+  artifact_url="$(python3 -c 'import json,sys; m=json.load(open(sys.argv[1],encoding="utf-8")); print(m.get("artifact_url") or m.get("url") or "")' "$tmp_man")"
+  if [[ -z "$artifact_url" && -z "${SOVIEZ_PLATFORM_CANDIDATE_FILE:-}" ]]; then
+    rm -f "$tmp_man"
+    if [[ "$readonly" -eq 1 ]]; then return 0; fi
+    echo "[error] platform security: manifest missing artifact_url" >&2
+    return 1
+  fi
+
+  # Read-only: best-effort notice only — do not mutate platform mid list/version.
+  if [[ "$readonly" -eq 1 && "${SOVIEZ_PLATFORM_UPDATE_ON_READONLY:-0}" != "1" ]]; then
+    echo "[info] newer platform available ($local_ver → $remote_ver); run a mutating command or --platform-install to update" >&2
+    rm -f "$tmp_man"
+    return 0
+  fi
+
+  soviez_platform_lock_acquire
+  local cand
+  cand="$(mktemp "${TMPDIR:-/tmp}/soviez-platform-cand.XXXXXX")"
+  if [[ -n "${SOVIEZ_PLATFORM_CANDIDATE_FILE:-}" && -f "${SOVIEZ_PLATFORM_CANDIDATE_FILE}" ]]; then
+    cp -f "$SOVIEZ_PLATFORM_CANDIDATE_FILE" "$cand"
+  else
+    if ! curl -fsSL --connect-timeout 5 --max-time 180 "$artifact_url" -o "$cand"; then
+      rm -f "$cand" "$tmp_man"
+      soviez_platform_lock_release
+      if [[ "$require_update" -eq 1 && "${SOVIEZ_PLATFORM_UPDATE_STRICT:-0}" == "1" ]]; then
+        echo "[error] platform update service unavailable (artifact download failed)" >&2
+        return 1
+      fi
+      echo "[warn] platform candidate download failed; continuing with $local_ver" >&2
+      return 0
+    fi
+  fi
+
+  if ! soviez_platform_verify_candidate "$cand" "$tmp_man"; then
+    rm -f "$cand" "$tmp_man"
+    soviez_platform_lock_release
+    # Cryptographic/trust failure — fail closed for mutating; preserve platform.
+    echo "[error] platform security verification failed; candidate NOT installed; current platform preserved" >&2
+    return 1
+  fi
+
+  if ! head -1 "$cand" | grep -q 'bash'; then
+    rm -f "$cand" "$tmp_man"
+    soviez_platform_lock_release
+    echo "[error] platform security: candidate is not a bash script" >&2
+    return 1
+  fi
+
+  chmod 755 "$cand"
+  local install_channel
+  install_channel="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1],encoding="utf-8")).get("channel") or "")' "$tmp_man")"
+  install_channel="${install_channel:-$(soviez_platform_channel)}"
+  SOVIEZ_PLATFORM_INSTALL_SRC="$cand" soviez_platform_install_from_file "$cand" "$install_channel" || {
+    rm -f "$cand" "$tmp_man"
+    soviez_platform_lock_release
+    return 1
+  }
+  # Install bundled trust keys alongside payload when present in candidate dir packaging — keys live in share/.
+  local trust_src
+  trust_src="${SOVIEZ_SH_ROOT:-}/share/platform-trust"
+  if [[ -d "$trust_src" ]]; then
+    mkdir -p "$(soviez_platform_current_dir)/trust"
+    cp -a "$trust_src/." "$(soviez_platform_current_dir)/trust/" 2>/dev/null || true
+  fi
+
+  rm -f "$cand" "$tmp_man"
+  soviez_platform_lock_release
+
+  local launcher
+  launcher="$(soviez_platform_bin)"
+  if [[ "${SOVIEZ_TEST_MODE:-0}" == "1" ]]; then
+    launcher="${SOVIEZ_ROOT}/bin/soviez.sh"
+  fi
+  echo "[info] platform updated $local_ver → $remote_ver; re-executing" >&2
+  exec env SOVIEZ_SKIP_PLATFORM_UPDATE=1 bash "$launcher" "$@"
+}
+
+# --- end platform/self_update.sh ---
+
+# --- begin sizing/engine.sh ---
+# shellcheck shell=bash
+# Deterministic resource sizing engine (Odoo + PostgreSQL + Docker/SHM).
+
+soviez_sizing_detect_cpu() {
+  if [[ -n "${SOVIEZ_SIZING_FORCE_CPU:-}" ]]; then
+    printf '%s\n' "$SOVIEZ_SIZING_FORCE_CPU"
+    return 0
+  fi
+  if command -v nproc >/dev/null 2>&1; then
+    nproc
+    return 0
+  fi
+  sysctl -n hw.ncpu 2>/dev/null || printf '1\n'
+}
+
+soviez_sizing_detect_ram_mb() {
+  if [[ -n "${SOVIEZ_SIZING_FORCE_RAM_MB:-}" ]]; then
+    printf '%s\n' "$SOVIEZ_SIZING_FORCE_RAM_MB"
+    return 0
+  fi
+  if [[ -r /proc/meminfo ]]; then
+    awk '/MemTotal:/ {printf "%d\n", $2/1024; exit}' /proc/meminfo
+    return 0
+  fi
+  local bytes
+  bytes="$(sysctl -n hw.memsize 2>/dev/null || echo 0)"
+  printf '%d\n' "$((bytes / 1024 / 1024))"
+}
+
+# Emit JSON sizing profile to stdout.
+soviez_sizing_calculate() {
+  local cpu ram_mb prod_n stage_n db_mb fs_mb
+  cpu="$(soviez_sizing_detect_cpu)"
+  ram_mb="$(soviez_sizing_detect_ram_mb)"
+  prod_n="${1:-1}"
+  stage_n="${2:-0}"
+  db_mb="${3:-0}"
+  fs_mb="${4:-0}"
+
+  python3 - "$cpu" "$ram_mb" "$prod_n" "$stage_n" "$db_mb" "$fs_mb" <<'PY'
+import json, sys, math
+cpu=max(1,int(float(sys.argv[1])))
+ram=max(512,int(float(sys.argv[2])))
+prod=max(0,int(float(sys.argv[3])))
+stage=max(0,int(float(sys.argv[4])))
+db_mb=max(0,int(float(sys.argv[5])))
+fs_mb=max(0,int(float(sys.argv[6])))
+
+# Host reserves: OS + nginx + docker + clamav/yara + fs cache headroom
+reserve = max(768, int(ram * 0.22))
+security_headroom = 256 if ram >= 4096 else 128
+stage_reserve = min(int(ram * 0.08) * max(stage, 0), int(ram * 0.20))
+usable = max(512, ram - reserve - security_headroom - stage_reserve)
+
+# Odoo workers: leave room for PG + cron + gevent + scanners
+# Conservative cap: at most 1 worker per CPU (not classic 2*cpu+1)
+per_worker_mb = 220
+max_by_cpu = max(0, cpu)
+max_by_mem = max(0, int((usable * 0.35) / per_worker_mb))
+workers = min(max_by_cpu, max_by_mem)
+# Conservative: sub-6GiB or single CPU cannot safely host multiprocessing + PG + scanners
+if ram < 6144 or cpu < 2:
+    workers = 0  # explicit minimal fallback
+elif ram < 8192:
+    workers = min(workers, max(1, cpu // 2 or 1))
+workers = int(workers)
+
+max_cron = 1 if workers == 0 else max(1, min(2, cpu // 2))
+limit_soft = per_worker_mb * 1024 * 1024
+limit_hard = int(limit_soft * 1.5)
+limit_time_cpu = 60
+limit_time_real = 120
+limit_request = 8192
+
+# PostgreSQL share of usable RAM
+pg_budget = int(usable * 0.40)
+shared_buffers = max(128, min(int(pg_budget * 0.35), 8192))
+effective_cache = max(shared_buffers * 2, min(int(usable * 0.50), ram - reserve))
+work_mem = max(4, min(64, int((pg_budget * 0.10) / max(1, workers + 4))))
+maint_work = max(64, min(1024, int(pg_budget * 0.10)))
+max_conn = max(40, min(200, 40 + workers * 4 + stage * 8))
+effective_io = 200  # SSD default; HDD override via env later
+random_page = 1.1
+checkpoint = 0.9
+min_wal = 1024
+max_wal = max(2048, min(8192, shared_buffers))
+max_worker_processes = max(2, min(cpu, 8))
+max_parallel = max(1, min(cpu // 2, 4))
+max_parallel_gather = max(1, min(2, max_parallel))
+
+# Docker SHM for PG (bytes-like MB)
+shm_mb = max(64, min(shared_buffers, int(ram * 0.15)))
+
+profile = {
+  "cpu": cpu,
+  "ram_mb": ram,
+  "usable_mb": usable,
+  "host_reserve_mb": reserve,
+  "security_headroom_mb": security_headroom,
+  "stage_reserve_mb": stage_reserve,
+  "productions": prod,
+  "stages": stage,
+  "odoo": {
+    "workers": workers,
+    "max_cron_threads": max_cron,
+    "limit_memory_soft": limit_soft,
+    "limit_memory_hard": limit_hard,
+    "limit_time_cpu": limit_time_cpu,
+    "limit_time_real": limit_time_real,
+    "limit_request": limit_request,
+    "proxy_mode": True,
+    "list_db": False,
+    "gevent_port": 8072 if workers > 0 else None,
+    "http_port": 8069,
+  },
+  "postgres": {
+    "shared_buffers_mb": shared_buffers,
+    "effective_cache_size_mb": effective_cache,
+    "work_mem_mb": work_mem,
+    "maintenance_work_mem_mb": maint_work,
+    "max_connections": max_conn,
+    "effective_io_concurrency": effective_io,
+    "random_page_cost": random_page,
+    "checkpoint_completion_target": checkpoint,
+    "min_wal_size_mb": min_wal,
+    "max_wal_size_mb": max_wal,
+    "max_worker_processes": max_worker_processes,
+    "max_parallel_workers": max_parallel,
+    "max_parallel_workers_per_gather": max_parallel_gather,
+    "log_min_duration_statement_ms": 1000,
+    "log_lock_waits": True,
+  },
+  "docker": {
+    "postgres_shm_mb": shm_mb,
+  },
+  "topology": {
+    "http_backend": "127.0.0.1:8069",
+    "websocket_backend": "127.0.0.1:8072" if workers > 0 else "127.0.0.1:8069",
+    "mode": "multi_worker_gevent" if workers > 0 else "single_worker_compat",
+  },
+}
+print(json.dumps(profile, indent=2, sort_keys=True))
+PY
+}
+
+# --- end sizing/engine.sh ---
+
 # --- begin cli/parse.sh ---
 # shellcheck shell=bash
 
@@ -25352,6 +26404,10 @@ SOVIEZ_CLI_TARGET=""
 soviez_cli_usage() {
   cat <<EOF
 Usage: soviez.sh --new [options]
+       soviez.sh --version
+       soviez.sh --list
+       soviez.sh --tune [--dry-run]
+       soviez.sh --platform-install
        soviez.sh --reattach <operation-id>
        soviez.sh --update <production-environment-id> [--release ID] [--offline-package PATH] [--confirm]
        soviez.sh --update-status <operation-id>
@@ -25547,6 +26603,10 @@ Options:
   --stage-domain FQDN   Mandatory Stage domain/subdomain
   --production-tenant T Exact Production tenant id
   --stage-list          List local Stages (no entitlement required)
+  --list                List all Soviez-managed environments (Production + Stage)
+  --version             Local platform version / channel / artifact digest
+  --tune [--dry-run]    Recalculate and apply safe Odoo/PostgreSQL/Docker sizing
+  --platform-install    Install modular platform payload + /usr/local/bin/soviez.sh launcher
   --stage-status ID     Local Stage status
   --stage-start ID      Start Stage (works after entitlement expiry)
   --stage-stop ID       Stop Stage
@@ -25733,6 +26793,22 @@ soviez_cli_parse() {
         ;;
       --stage-list)
         SOVIEZ_CLI_COMMAND="stage-list"
+        shift
+        ;;
+      --list)
+        SOVIEZ_CLI_COMMAND="list"
+        shift
+        ;;
+      --version)
+        SOVIEZ_CLI_COMMAND="version"
+        shift
+        ;;
+      --tune)
+        SOVIEZ_CLI_COMMAND="tune"
+        shift
+        ;;
+      --platform-install)
+        SOVIEZ_CLI_COMMAND="platform-install"
         shift
         ;;
       --stage-status)
@@ -26895,6 +27971,234 @@ soviez_cmd_security_report() {
 }
 
 # --- end commands/security_platform.sh ---
+
+# --- begin commands/version.sh ---
+# shellcheck shell=bash
+
+soviez_cmd_version_run() {
+  local ver channel digest payload
+  ver="$(soviez_version)"
+  channel="$(soviez_platform_channel)"
+  if [[ -f "$(soviez_platform_current_dir)/CHANNEL" ]]; then
+    channel="$(tr -d '[:space:]' <"$(soviez_platform_current_dir)/CHANNEL")"
+  fi
+  digest="$(soviez_platform_installed_digest)"
+  payload="$(soviez_platform_payload)"
+  if [[ "${SOVIEZ_TEST_MODE:-0}" == "1" ]]; then
+    payload="${SOVIEZ_ROOT}/platform/current/soviez.sh"
+    if [[ -f "${SOVIEZ_ROOT}/platform/current/CHANNEL" ]]; then
+      channel="$(tr -d '[:space:]' <"${SOVIEZ_ROOT}/platform/current/CHANNEL")"
+    fi
+    if [[ -f "${SOVIEZ_ROOT}/platform/current/soviez.sh.sha256" ]]; then
+      digest="$(awk 'NR==1{print $1}' "${SOVIEZ_ROOT}/platform/current/soviez.sh.sha256")"
+    fi
+  fi
+  cat <<EOF
+Soviez.sh ${ver}
+Channel: ${channel}
+Artifact: sha256:${digest}
+Payload: ${payload}
+EOF
+}
+
+# --- end commands/version.sh ---
+
+# --- begin commands/list.sh ---
+# shellcheck shell=bash
+# List every Soviez-managed environment on this server (local-only).
+
+soviez_cmd_list_run() {
+  printf '%-11s %-16s %-40s %s\n' "TYPE" "ID" "DOMAIN" "STATUS"
+  local found=0
+
+  # Productions from tenant identity files
+  local tenant_root
+  if [[ "${SOVIEZ_TEST_MODE:-0}" == "1" ]]; then
+    tenant_root="${SOVIEZ_ROOT}/tenant"
+  else
+    tenant_root="${SOVIEZ_TENANT_DIR:-/var/soviez/tenant}"
+  fi
+  if [[ -d "$tenant_root" ]]; then
+    local ident id domain status
+    while IFS= read -r -d '' ident; do
+      id="$(soviez_json_get "$(cat "$ident")" id 2>/dev/null || soviez_json_get "$(cat "$ident")" production_id 2>/dev/null || basename "$(dirname "$ident")")"
+      domain="$(soviez_json_get "$(cat "$ident")" domain 2>/dev/null || soviez_json_get "$(cat "$ident")" production_domain 2>/dev/null || echo "-")"
+      status="$(soviez_json_get "$(cat "$ident")" lifecycle_status 2>/dev/null || echo "unknown")"
+      # Map common statuses for display
+      case "$status" in
+        running|active) status="Running" ;;
+        stopped) status="Stopped" ;;
+        *) status="${status:-unknown}" ;;
+      esac
+      printf '%-11s %-16s %-40s %s\n' "Production" "$id" "$domain" "$status"
+      found=1
+    done < <(find "$tenant_root" -type f -name 'identity.json' -print0 2>/dev/null)
+  fi
+
+  # Legacy env sheets (best-effort)
+  local envf
+  for envf in /root/.soviez_*.env "${SOVIEZ_ROOT:-}/.soviez_*.env"; do
+    [[ -f "$envf" ]] || continue
+    # shellcheck disable=SC1090
+    domain="$(grep -E '^DOMAIN=' "$envf" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' || true)"
+    id="$(basename "$envf" | sed 's/^\.soviez_//;s/\.env$//')"
+    status="Unknown"
+    if command -v docker >/dev/null 2>&1; then
+      if docker ps --format '{{.Names}}' 2>/dev/null | grep -q "soviez-web-${id}"; then
+        status="Running"
+      elif docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q "soviez-web-${id}"; then
+        status="Stopped"
+      fi
+    fi
+    printf '%-11s %-16s %-40s %s\n' "Production" "$id" "${domain:--}" "$status"
+    found=1
+  done
+
+  # Stages
+  if declare -F soviez_stage_paths_init >/dev/null 2>&1; then
+    soviez_stage_paths_init 2>/dev/null || true
+  fi
+  if declare -F soviez_stage_inventory_list_ids >/dev/null 2>&1; then
+    local sid ident domain status
+    while IFS= read -r sid; do
+      [[ -z "$sid" ]] && continue
+      ident="$(soviez_stage_inventory_find "$sid" 2>/dev/null || true)"
+      [[ -n "$ident" ]] || continue
+      domain="$(soviez_json_get "$ident" stage_domain 2>/dev/null || echo "-")"
+      status="$(soviez_json_get "$ident" lifecycle_status 2>/dev/null || echo unknown)"
+      case "$status" in
+        running) status="Running" ;;
+        stopped|certified) status="Stopped" ;;
+      esac
+      printf '%-11s %-16s %-40s %s\n' "Stage" "$sid" "$domain" "$status"
+      found=1
+    done < <(soviez_stage_inventory_list_ids 2>/dev/null || true)
+  fi
+
+  if [[ "$found" -eq 0 ]]; then
+    printf '%-11s %-16s %-40s %s\n' "-" "-" "-" "No environments found"
+  fi
+}
+
+# --- end commands/list.sh ---
+
+# --- begin commands/tune.sh ---
+# shellcheck shell=bash
+
+soviez_cmd_tune_run() {
+  local dry="${SOVIEZ_CLI_DRY_RUN:-0}"
+  local prod_n=0 stage_n=0
+  if declare -F soviez_stage_inventory_list_ids >/dev/null 2>&1; then
+    stage_n="$(soviez_stage_inventory_list_ids 2>/dev/null | grep -c . || true)"
+  fi
+  if [[ "${SOVIEZ_TEST_MODE:-0}" == "1" ]]; then
+    prod_n="$(find "${SOVIEZ_ROOT}/tenant" -name identity.json 2>/dev/null | wc -l | tr -d ' ')"
+  else
+    prod_n="$(find "${SOVIEZ_TENANT_DIR:-/var/soviez/tenant}" -name identity.json 2>/dev/null | wc -l | tr -d ' ')"
+  fi
+  prod_n="${prod_n:-1}"
+  [[ "$prod_n" -ge 1 ]] || prod_n=1
+
+  local profile
+  profile="$(soviez_sizing_calculate "$prod_n" "$stage_n" 0 0)"
+  echo "=== Soviez sizing plan ==="
+  printf '%s\n' "$profile"
+
+  local state_dir
+  if [[ "${SOVIEZ_TEST_MODE:-0}" == "1" ]]; then
+    state_dir="${SOVIEZ_ROOT}/tuning"
+  else
+    state_dir="/var/soviez/tuning"
+  fi
+  mkdir -p "$state_dir"
+
+  # Idempotency: identical effective profile → no apply / no restart.
+  if [[ -f "${state_dir}/profile.json" ]]; then
+    if SOVIEZ_NEW_PROFILE="$profile" python3 - "$state_dir/profile.json" <<'PY'
+import json, os, sys
+new=json.loads(os.environ["SOVIEZ_NEW_PROFILE"])
+old=json.load(open(sys.argv[1],encoding="utf-8"))
+keys=("odoo","postgres","docker","topology")
+same=all(old.get(k)==new.get(k) for k in keys)
+sys.exit(0 if same else 1)
+PY
+    then
+      echo "[ok] no effective changes (idempotent)"
+      return 0
+    fi
+  fi
+
+  if [[ "$dry" == "1" ]]; then
+    echo "[dry-run] proposed changes above; no system state modified"
+    echo "[dry-run] restart may be required for: odoo workers/memory, postgres shared_buffers, docker shm"
+    return 0
+  fi
+
+  # Checkpoint
+  if [[ -f "${state_dir}/profile.json" ]]; then
+    cp -f "${state_dir}/profile.json" "${state_dir}/profile.prev.json"
+  fi
+  local conf="${SOVIEZ_TUNE_ODOO_CONF:-}"
+  local conf_bak=""
+  if [[ -n "$conf" && -f "$conf" ]]; then
+    conf_bak="${state_dir}/odoo.conf.bak"
+    cp -f "$conf" "$conf_bak"
+  fi
+
+  printf '%s\n' "$profile" >"${state_dir}/profile.json.new"
+  mv -f "${state_dir}/profile.json.new" "${state_dir}/profile.json"
+  printf '%s\n' "$profile" >"${state_dir}/postgres.recommended.json"
+
+  if [[ -n "$conf" && -f "$conf" ]]; then
+    local workers soft hard cron
+    workers="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["odoo"]["workers"])' <<<"$profile")"
+    soft="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["odoo"]["limit_memory_soft"])' <<<"$profile")"
+    hard="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["odoo"]["limit_memory_hard"])' <<<"$profile")"
+    cron="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["odoo"]["max_cron_threads"])' <<<"$profile")"
+    if declare -F soviez_sec__odoo_conf_set_option >/dev/null 2>&1; then
+      soviez_sec__odoo_conf_set_option "$conf" workers "$workers" || {
+        soviez_cmd_tune_rollback "$state_dir" "$conf" "$conf_bak"
+        return 1
+      }
+      soviez_sec__odoo_conf_set_option "$conf" max_cron_threads "$cron"
+      soviez_sec__odoo_conf_set_option "$conf" limit_memory_soft "$soft"
+      soviez_sec__odoo_conf_set_option "$conf" limit_memory_hard "$hard"
+      soviez_sec__odoo_conf_set_option "$conf" proxy_mode True
+      soviez_sec__odoo_conf_set_option "$conf" list_db False
+      if [[ "$workers" -gt 0 ]]; then
+        soviez_sec__odoo_conf_set_option "$conf" gevent_port 8072
+      fi
+    fi
+    # Verify managed keys present
+    if declare -F soviez_ws_assert_odoo_conf >/dev/null 2>&1; then
+      if ! soviez_ws_assert_odoo_conf "$conf"; then
+        soviez_cmd_tune_rollback "$state_dir" "$conf" "$conf_bak"
+        echo "[error] tune verification failed; rolled back" >&2
+        return 1
+      fi
+    fi
+  fi
+
+  echo "[ok] tuning profile saved to ${state_dir}/profile.json"
+  echo "[ok] apply complete (restart services only if values changed and require it)"
+}
+
+soviez_cmd_tune_rollback() {
+  local state_dir="$1" conf="${2:-}" conf_bak="${3:-}"
+  if [[ -f "${state_dir}/profile.prev.json" ]]; then
+    mv -f "${state_dir}/profile.prev.json" "${state_dir}/profile.json"
+  fi
+  if [[ -n "$conf" && -n "$conf_bak" && -f "$conf_bak" ]]; then
+    cp -f "$conf_bak" "$conf"
+  fi
+  echo "[warn] tune rollback restored previous configuration" >&2
+}
+
+soviez_cmd_platform_install_run() {
+  soviez_platform_install_self_payload
+}
+
+# --- end commands/tune.sh ---
 
 # --- begin commands/new.sh ---
 # shellcheck shell=bash
@@ -41898,7 +43202,19 @@ soviez_main() {
   soviez_ops_paths_init 2>/dev/null || true
   soviez_cli_parse "$@"
 
+  # Signed platform self-update preflight (mutating commands); read-only is best-effort.
+  if declare -F soviez_platform_self_update_maybe >/dev/null 2>&1; then
+    soviez_platform_self_update_maybe "$@" || {
+      echo "[error] platform self-update preflight failed" >&2
+      exit 1
+    }
+  fi
+
   case "$SOVIEZ_CLI_COMMAND" in
+    version) soviez_cmd_version_run ;;
+    list) soviez_cmd_list_run ;;
+    tune) soviez_cmd_tune_run ;;
+    platform-install) soviez_cmd_platform_install_run ;;
     new) soviez_cmd_new_run ;;
     reattach) soviez_cmd_reattach_run ;;
     stage|stage-reattach)

@@ -38,6 +38,10 @@ SOVIEZ_CLI_TARGET=""
 soviez_cli_usage() {
   cat <<EOF
 Usage: soviez.sh --new [options]
+       soviez.sh --version
+       soviez.sh --list
+       soviez.sh --tune [--dry-run]
+       soviez.sh --platform-install
        soviez.sh --reattach <operation-id>
        soviez.sh --update <production-environment-id> [--release ID] [--offline-package PATH] [--confirm]
        soviez.sh --update-status <operation-id>
@@ -233,6 +237,10 @@ Options:
   --stage-domain FQDN   Mandatory Stage domain/subdomain
   --production-tenant T Exact Production tenant id
   --stage-list          List local Stages (no entitlement required)
+  --list                List all Soviez-managed environments (Production + Stage)
+  --version             Local platform version / channel / artifact digest
+  --tune [--dry-run]    Recalculate and apply safe Odoo/PostgreSQL/Docker sizing
+  --platform-install    Install modular platform payload + /usr/local/bin/soviez.sh launcher
   --stage-status ID     Local Stage status
   --stage-start ID      Start Stage (works after entitlement expiry)
   --stage-stop ID       Stop Stage
@@ -419,6 +427,22 @@ soviez_cli_parse() {
         ;;
       --stage-list)
         SOVIEZ_CLI_COMMAND="stage-list"
+        shift
+        ;;
+      --list)
+        SOVIEZ_CLI_COMMAND="list"
+        shift
+        ;;
+      --version)
+        SOVIEZ_CLI_COMMAND="version"
+        shift
+        ;;
+      --tune)
+        SOVIEZ_CLI_COMMAND="tune"
+        shift
+        ;;
+      --platform-install)
+        SOVIEZ_CLI_COMMAND="platform-install"
         shift
         ;;
       --stage-status)

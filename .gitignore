@@ -47,3 +47,10 @@ local-filestore/
 # Service build artifacts (defensive — do not re-add internal services here)
 services/*/dist/
 services/*/node_modules/
+
+# never commit private staging keys
+**/*.key
+!.gitkeep
+
+.secrets/
+**/*.key
