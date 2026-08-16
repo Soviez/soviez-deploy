@@ -54,3 +54,5 @@ services/*/node_modules/
 
 .secrets/
 **/*.key
+
+!share/platform-trust/keys.json
