@@ -1,0 +1,15 @@
+NEG_BADSIG rc=1
+[error] platform Ed25519 signature verification failed
+NEG_BADSIG=PASS_FAIL_CLOSED
+NEG_BADSHA rc=1
+[error] platform security: SHA256 mismatch expected=0000000000000000000000000000000000000000000000000000000000000000 actual=fbd3a3eab448e4d34bcfd5b78d0178d72b4178ed71ccff2abb11a96f3f78a193
+NEG_BADSHA=PASS_FAIL_CLOSED
+NEG_BADKEY rc=1
+[error] platform security: no trusted public key for signer_key_id=unknown-attacker-key
+NEG_BADKEY=PASS_FAIL_CLOSED
+NEG_MALFORMED rc=1
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+  File "/usr/lib/python3.12/json/__init__.py", line 293, in load
+NEG_MALFORMED=PASS_FAIL_CLOSED
+NEG_SUMMARY pass_closed=4 unexpected=0

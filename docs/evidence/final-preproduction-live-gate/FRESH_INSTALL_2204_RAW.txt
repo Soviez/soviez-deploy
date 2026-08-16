@@ -1,38 +1,29 @@
-BARE_VERSION
-/opt/soviez/platform/current/soviez.sh: line 9996: SOVIEZ_ROOT: unbound variable
-WITH_ROOT
-Soviez.sh 0.24.6.1-platform-cli
+=== u2204 install 0.24.6.2 ===
+curl: (22) The requested URL returned error: 404
+[warn] platform update check skipped (service unavailable); continuing with installed platform
+[ok] installed platform payload → /opt/soviez/platform/current/soviez.sh
+[ok] installed launcher → /usr/local/bin/soviez.sh
+[ok] digest sha256:fbd3a3eab448e4d34bcfd5b78d0178d72b4178ed71ccff2abb11a96f3f78a193
+INSTALL_RC=0
+fbd3a3eab448e4d34bcfd5b78d0178d72b4178ed71ccff2abb11a96f3f78a193  /opt/soviez/platform/current/soviez.sh
+=== bare PATH ===
+Soviez.sh 0.24.6.2-platform-cli
 Channel: staging
-Artifact: sha256:dc16a4cde22e2e6142706b0e5937237028931ca1c3e352b356a22bfd966e051b
+Artifact: sha256:fbd3a3eab448e4d34bcfd5b78d0178d72b4178ed71ccff2abb11a96f3f78a193
 Payload: /opt/soviez/platform/current/soviez.sh
+RC_VERSION=0
 TYPE        ID               DOMAIN                                   STATUS
 -           -                -                                        No environments found
+RC_LIST=0
 Stage ID | Domain | Status | Parent | Created | Cert
+RC_STAGE=0
+RC_TUNE=0
 === Soviez sizing plan ===
 {
   "cpu": 4,
   "docker": {
-    "postgres_shm_mb": 830
-  },
-  "host_reserve_mb": 1744,
-  "odoo": {
-    "gevent_port": 8072,
-    "http_port": 8069,
-    "limit_memory_hard": 346030080,
-    "limit_memory_soft": 230686720,
-    "limit_request": 8192,
-    "limit_time_cpu": 60,
-    "limit_time_real": 120,
-    "list_db": false,
-    "max_cron_threads": 2,
-    "proxy_mode": true,
-    "workers": 2
-  },
-  "postgres": {
-    "checkpoint_completion_target": 0.9,
-    "effective_cache_size_mb": 2965,
-    "effective_io_concurrency": 200,
-    "log_lock_waits": true,
-/usr/local/bin/soviez.sh
-755 root:root /usr/local/bin/soviez.sh
-755 root:root /opt/soviez/platform/current/soviez.sh
+    "postgres_shm_mb": 858
+BARE_VER=PASS
+BARE_LIST=PASS
+BARE_STAGE=PASS
+BARE_TUNE=PASS

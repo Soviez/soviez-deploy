@@ -1,0 +1,35 @@
+=== INSTALL OLD 0.24.6.1 with SOVIEZ_ROOT workaround ===
+curl: (22) The requested URL returned error: 404
+[warn] platform update check skipped (service unavailable); continuing with installed platform
+chmod: invalid option -- 'p'
+Try 'chmod --help' for more information.
+OLD_INSTALL_RC=1
+CUR_SHA=fbd3a3eab448e4d34bcfd5b78d0178d72b4178ed71ccff2abb11a96f3f78a193
+FORCE_COPY_OLD_PAYLOAD
+CUR_SHA_AFTER_FORCE=dc16a4cde22e2e6142706b0e5937237028931ca1c3e352b356a22bfd966e051b
+HOTFIX=yes
+0054896ddd2ab5b5d3a7dafc7390a0eb8fcfb76c75a32dfd5db30309dac75836  /opt/soviez/platform/current/soviez.sh
+BEFORE:
+mkdir: cannot create directory ‘/var/soviez/ssl’: Permission denied
+mkdir: cannot create directory ‘/var/soviez/ssl’: Permission denied
+mkdir: cannot create directory ‘/var/soviez/ssl’: Permission denied
+mkdir: cannot create directory ‘/var/soviez/ssl’: Permission denied
+mkdir: cannot create directory ‘/var/soviez/ssl’: Permission denied
+=== SELFUPDATE via staging manifest URL ===
+/opt/soviez/platform/current/soviez.sh: line 25704: printf: -1: invalid option
+printf: usage: printf [-v var] format [arguments]
+[ok] installed platform payload → /opt/soviez/platform/current/soviez.sh
+[ok] installed launcher → /usr/local/bin/soviez.sh
+[ok] digest sha256:fbd3a3eab448e4d34bcfd5b78d0178d72b4178ed71ccff2abb11a96f3f78a193
+[info] platform updated 0.24.6.1-platform-cli → 0.24.6.2-platform-cli; re-executing
+[ok] installed platform payload → /opt/soviez/platform/current/soviez.sh
+[ok] installed launcher → /usr/local/bin/soviez.sh
+[ok] digest sha256:fbd3a3eab448e4d34bcfd5b78d0178d72b4178ed71ccff2abb11a96f3f78a193
+SELFUP_RC=0
+AFTER:
+Soviez.sh 0.24.6.2-platform-cli
+Channel: staging
+Artifact: sha256:fbd3a3eab448e4d34bcfd5b78d0178d72b4178ed71ccff2abb11a96f3f78a193
+Payload: /opt/soviez/platform/current/soviez.sh
+AFTER_SHA=fbd3a3eab448e4d34bcfd5b78d0178d72b4178ed71ccff2abb11a96f3f78a193
+SELFUP_POSITIVE=PASS

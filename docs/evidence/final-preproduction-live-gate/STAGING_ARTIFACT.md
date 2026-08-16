@@ -5,6 +5,7 @@ path: platform-release/staging/soviez.sh
 artifact_url: https://raw.githubusercontent.com/Soviez/soviez-deploy/cert/0.24.6.2-platform-cli/platform-release/staging/soviez.sh
 signer_key_id: soviez-platform-staging-2026-08
 schema: soviez.platform_release.v1
-captured_utc: 2026-08-16T15:56:29Z
+captured_utc: 2026-08-16T16:20:00Z
 live_u2404_selfupdate: PASS
 live_u2404_bare_path: PASS
+live_u2204_bare_path: PASS
