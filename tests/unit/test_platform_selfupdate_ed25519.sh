@@ -46,6 +46,6 @@ open("$TMP/badkey.json","w").write(json.dumps(m))
 PY
 soviez_platform_verify_candidate "$TMP/cand.sh" "$TMP/badkey.json" && bad BADKEY || pass BADKEY
 # downgrade cmp
-[[ "$(soviez_platform_version_cmp 0.24.6.1-platform-cli 0.24.6.0-platform-cli)" == "1" ]] && pass DOWNCMP || bad DOWNCMP
+[[ "$(soviez_platform_version_cmp 0.24.6.2-platform-cli 0.24.6.1-platform-cli)" == "1" ]] && pass DOWNCMP || bad DOWNCMP
 echo "ed25519_matrix ok=$ok fail=$fail"
 [[ $fail -eq 0 ]]

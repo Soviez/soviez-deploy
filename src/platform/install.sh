@@ -48,7 +48,7 @@ soviez_platform_install_from_file() {
     mkdir -p "${SOVIEZ_ROOT}/bin"
   fi
 
-  chmod -p "$current" "$previous" "$candidates"
+  mkdir -p "$current" "$previous" "$candidates"
   # Install trust public keys alongside payload (never private keys).
   local trust_src=""
   if [[ -d "${SOVIEZ_SH_ROOT:-}/share/platform-trust" ]]; then

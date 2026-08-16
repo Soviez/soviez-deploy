@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # GENERATED FILE — do not edit. Built from soviez-sh/src by build/assemble.sh
-# version: 0.24.6.1-platform-cli
+# version: 0.24.6.2-platform-cli
 set -euo pipefail
 
 # --- begin version.sh ---
@@ -325,18 +325,21 @@ soviez_paths_init() {
     SOVIEZ_SAAS_BASE_URL="${SOVIEZ_SAAS_BASE_URL:-http://127.0.0.1:8765}"
     SOVIEZ_REGISTRY_GATEWAY_URL="${SOVIEZ_REGISTRY_GATEWAY_URL:-http://127.0.0.1:8766}"
   else
-    SOVIEZ_OPS_ROOT="${SOVIEZ_OPS_ROOT:-/var/soviez/ops}"
+    # Customer installs use a stable default root; never require SOVIEZ_ROOT in the environment
+    # for read-only PATH CLI commands (e.g. soviez.sh --version from /tmp).
+    SOVIEZ_ROOT="${SOVIEZ_ROOT:-/var/soviez}"
+    SOVIEZ_OPS_ROOT="${SOVIEZ_OPS_ROOT:-${SOVIEZ_ROOT}/ops}"
     SOVIEZ_DEVICE_DIR="${SOVIEZ_DEVICE_DIR:-/etc/soviez/device}"
     SOVIEZ_SECRETS_DIR="${SOVIEZ_SECRETS_DIR:-/etc/soviez/secrets}"
-    SOVIEZ_TENANT_DIR="${SOVIEZ_TENANT_DIR:-/var/soviez/tenant}"
+    SOVIEZ_TENANT_DIR="${SOVIEZ_TENANT_DIR:-${SOVIEZ_ROOT}/tenant}"
     SOVIEZ_SAAS_BASE_URL="${SOVIEZ_SAAS_BASE_URL:-https://app.soviez.com}"
     SOVIEZ_REGISTRY_GATEWAY_URL="${SOVIEZ_REGISTRY_GATEWAY_URL:-https://registry.soviez.com}"
   fi
 
-  export SOVIEZ_OPS_ROOT SOVIEZ_DEVICE_DIR SOVIEZ_SECRETS_DIR SOVIEZ_TENANT_DIR
+  export SOVIEZ_ROOT SOVIEZ_OPS_ROOT SOVIEZ_DEVICE_DIR SOVIEZ_SECRETS_DIR SOVIEZ_TENANT_DIR
   export SOVIEZ_SAAS_BASE_URL SOVIEZ_REGISTRY_GATEWAY_URL
 
-  mkdir -p "$SOVIEZ_OPS_ROOT/operations" "$SOVIEZ_DEVICE_DIR" "$SOVIEZ_SECRETS_DIR" "$SOVIEZ_TENANT_DIR"
+  mkdir -p "$SOVIEZ_OPS_ROOT/operations" "$SOVIEZ_DEVICE_DIR" "$SOVIEZ_SECRETS_DIR" "$SOVIEZ_TENANT_DIR" 2>/dev/null || true
   if declare -F soviez_stage_paths_init >/dev/null 2>&1; then
     soviez_stage_paths_init
   fi
@@ -9993,18 +9996,21 @@ soviez_ssl_paths_init() {
     SOVIEZ_SSL_NGINX_OWNED_DIR="$SOVIEZ_SSL_ROOT/nginx-owned"
     SOVIEZ_SSL_OPS_DIR="$SOVIEZ_OPS_ROOT/ssl-operations"
   else
-    SOVIEZ_SSL_ROOT="${SOVIEZ_SSL_ROOT:-$SOVIEZ_ROOT/ssl}"
+    _soviez_ssl_root="${SOVIEZ_ROOT:-/var/soviez}"
+    _soviez_ssl_ops="${SOVIEZ_OPS_ROOT:-${_soviez_ssl_root}/ops}"
+    SOVIEZ_SSL_ROOT="${SOVIEZ_SSL_ROOT:-${_soviez_ssl_root}/ssl}"
     SOVIEZ_SSL_INVENTORY_DIR="${SOVIEZ_SSL_INVENTORY_DIR:-$SOVIEZ_SSL_ROOT/inventory}"
     SOVIEZ_SSL_CERTS_DIR="${SOVIEZ_SSL_CERTS_DIR:-$SOVIEZ_SSL_ROOT/certs}"
     SOVIEZ_SSL_STAGING_DIR="${SOVIEZ_SSL_STAGING_DIR:-$SOVIEZ_SSL_ROOT/staging}"
     SOVIEZ_SSL_CHALLENGE_DIR="${SOVIEZ_SSL_CHALLENGE_DIR:-$SOVIEZ_SSL_ROOT/challenges}"
     SOVIEZ_SSL_NGINX_OWNED_DIR="${SOVIEZ_SSL_NGINX_OWNED_DIR:-$SOVIEZ_SSL_ROOT/nginx-owned}"
-    SOVIEZ_SSL_OPS_DIR="${SOVIEZ_SSL_OPS_DIR:-$SOVIEZ_OPS_ROOT/ssl-operations}"
+    SOVIEZ_SSL_OPS_DIR="${SOVIEZ_SSL_OPS_DIR:-${_soviez_ssl_ops}/ssl-operations}"
+    unset _soviez_ssl_root _soviez_ssl_ops
   fi
   export SOVIEZ_SSL_ROOT SOVIEZ_SSL_INVENTORY_DIR SOVIEZ_SSL_CERTS_DIR
   export SOVIEZ_SSL_STAGING_DIR SOVIEZ_SSL_CHALLENGE_DIR SOVIEZ_SSL_NGINX_OWNED_DIR SOVIEZ_SSL_OPS_DIR
   mkdir -p "$SOVIEZ_SSL_INVENTORY_DIR" "$SOVIEZ_SSL_CERTS_DIR" "$SOVIEZ_SSL_STAGING_DIR" \
-    "$SOVIEZ_SSL_CHALLENGE_DIR" "$SOVIEZ_SSL_NGINX_OWNED_DIR" "$SOVIEZ_SSL_OPS_DIR"
+    "$SOVIEZ_SSL_CHALLENGE_DIR" "$SOVIEZ_SSL_NGINX_OWNED_DIR" "$SOVIEZ_SSL_OPS_DIR" 2>/dev/null || true
   chmod 700 "$SOVIEZ_SSL_ROOT" "$SOVIEZ_SSL_CERTS_DIR" "$SOVIEZ_SSL_STAGING_DIR" \
     "$SOVIEZ_SSL_CHALLENGE_DIR" "$SOVIEZ_SSL_INVENTORY_DIR" 2>/dev/null || true
 }
@@ -25810,7 +25816,7 @@ soviez_platform_install_from_file() {
     mkdir -p "${SOVIEZ_ROOT}/bin"
   fi
 
-  chmod -p "$current" "$previous" "$candidates"
+  mkdir -p "$current" "$previous" "$candidates"
   # Install trust public keys alongside payload (never private keys).
   local trust_src=""
   if [[ -d "${SOVIEZ_SH_ROOT:-}/share/platform-trust" ]]; then

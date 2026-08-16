@@ -14,18 +14,21 @@ soviez_paths_init() {
     SOVIEZ_SAAS_BASE_URL="${SOVIEZ_SAAS_BASE_URL:-http://127.0.0.1:8765}"
     SOVIEZ_REGISTRY_GATEWAY_URL="${SOVIEZ_REGISTRY_GATEWAY_URL:-http://127.0.0.1:8766}"
   else
-    SOVIEZ_OPS_ROOT="${SOVIEZ_OPS_ROOT:-/var/soviez/ops}"
+    # Customer installs use a stable default root; never require SOVIEZ_ROOT in the environment
+    # for read-only PATH CLI commands (e.g. soviez.sh --version from /tmp).
+    SOVIEZ_ROOT="${SOVIEZ_ROOT:-/var/soviez}"
+    SOVIEZ_OPS_ROOT="${SOVIEZ_OPS_ROOT:-${SOVIEZ_ROOT}/ops}"
     SOVIEZ_DEVICE_DIR="${SOVIEZ_DEVICE_DIR:-/etc/soviez/device}"
     SOVIEZ_SECRETS_DIR="${SOVIEZ_SECRETS_DIR:-/etc/soviez/secrets}"
-    SOVIEZ_TENANT_DIR="${SOVIEZ_TENANT_DIR:-/var/soviez/tenant}"
+    SOVIEZ_TENANT_DIR="${SOVIEZ_TENANT_DIR:-${SOVIEZ_ROOT}/tenant}"
     SOVIEZ_SAAS_BASE_URL="${SOVIEZ_SAAS_BASE_URL:-https://app.soviez.com}"
     SOVIEZ_REGISTRY_GATEWAY_URL="${SOVIEZ_REGISTRY_GATEWAY_URL:-https://registry.soviez.com}"
   fi
 
-  export SOVIEZ_OPS_ROOT SOVIEZ_DEVICE_DIR SOVIEZ_SECRETS_DIR SOVIEZ_TENANT_DIR
+  export SOVIEZ_ROOT SOVIEZ_OPS_ROOT SOVIEZ_DEVICE_DIR SOVIEZ_SECRETS_DIR SOVIEZ_TENANT_DIR
   export SOVIEZ_SAAS_BASE_URL SOVIEZ_REGISTRY_GATEWAY_URL
 
-  mkdir -p "$SOVIEZ_OPS_ROOT/operations" "$SOVIEZ_DEVICE_DIR" "$SOVIEZ_SECRETS_DIR" "$SOVIEZ_TENANT_DIR"
+  mkdir -p "$SOVIEZ_OPS_ROOT/operations" "$SOVIEZ_DEVICE_DIR" "$SOVIEZ_SECRETS_DIR" "$SOVIEZ_TENANT_DIR" 2>/dev/null || true
   if declare -F soviez_stage_paths_init >/dev/null 2>&1; then
     soviez_stage_paths_init
   fi

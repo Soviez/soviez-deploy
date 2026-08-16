@@ -37,7 +37,7 @@ echo "$out" | grep -q 'Usage: soviez.sh' && pass CLI-002 || bad CLI-002 "$out"
 
 run_cli --help >/dev/null && pass CLI-003 || bad CLI-003
 ver="$(run_cli --version)"
-echo "$ver" | grep -q '0.24.6.1-platform-cli' && echo "$ver" | grep -qi 'Channel' && echo "$ver" | grep -qi 'Artifact' && pass CLI-004 || bad CLI-004 "$ver"
+echo "$ver" | grep -q '0.24.6.2-platform-cli' && echo "$ver" | grep -qi 'Channel' && echo "$ver" | grep -qi 'Artifact' && pass CLI-004 || bad CLI-004 "$ver"
 
 list_empty="$(run_cli --list)"
 echo "$list_empty" | grep -q 'TYPE' && pass CLI-005 || bad CLI-005 "$list_empty"
