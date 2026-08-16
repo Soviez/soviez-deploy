@@ -1,0 +1,40 @@
+ M VERSION
+ M build/assemble.sh
+ M dist/soviez.sh
+ M dist/soviez.sh.sha256
+ M docs/ai/IMPLEMENTATION_INVARIANTS.md
+ M docs/user/ACTIVATION.md
+ M docs/user/BACKUP.md
+ M docs/user/CLI_REFERENCE.md
+ M docs/user/CONFIGURATION_REFERENCE.md
+ M docs/user/DOMAIN_AND_TLS.md
+ M docs/user/INITIALIZATION.md
+ M docs/user/INSTALLATION.md
+ M docs/user/MIGRATION.md
+ M docs/user/NEW_PRODUCTION.md
+ M docs/user/OFFLINE_UPDATES.md
+ M docs/user/QUICK_START.md
+ M docs/user/RECOVERY.md
+ M docs/user/RESTORE.md
+ M docs/user/SECURITY.md
+ M docs/user/STAGE_ENVIRONMENTS.md
+ M docs/user/STATUS_AND_DIAGNOSTICS.md
+ M docs/user/SUPPORT_AND_EXPIRY.md
+ M docs/user/UPDATES.md
+ M docs/user/WEBSOCKET_AND_LONGPOLLING.md
+ M soviez.sh
+ M src/cli/parse.sh
+ M src/docker/provision.sh
+ M src/entrypoint.sh
+ M src/nginx/ownership.sh
+ M src/security/platform/nginx_edge.sh
+ M src/security/platform/websocket_topology.sh
+ M src/security/quarantine/filestore.sh
+ M src/stage/inventory.sh
+ M src/stage/lifecycle.sh
+ M tests/security/test_postcert_websocket_parity.sh
+?? docs/evidence/cli-invocation-self-update-audit/
+?? docs/evidence/cli-selfupdate-tuning-security-correction/
+?? docs/evidence/public-web-docs-sync/
+?? docs/evidence/registry-gateway-and-main-publication/SAAS_BUILD_CORRECTION.md
+?? docs/user/TUNING.md

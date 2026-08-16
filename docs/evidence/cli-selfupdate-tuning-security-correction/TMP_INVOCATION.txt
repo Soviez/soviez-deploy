@@ -1,0 +1,27 @@
+command -v: /Volumes/PortableSSD/soviez-project/soviez-deploy/docs/evidence/cli-selfupdate-tuning-security-correction/_fixture_root/bin/soviez.sh
+--- version ---
+Soviez.sh 0.24.6.0-platform-cli
+Channel: stable
+Artifact: sha256:7265a248fef5bf88c1d0d0c67fcfed8604eabd151b1f8ebf1bc4f83cce33da6f
+Payload: /Volumes/PortableSSD/soviez-project/soviez-deploy/docs/evidence/cli-selfupdate-tuning-security-correction/_fixture_root/platform/current/soviez.sh
+--- help ---
+Usage: soviez.sh --new [options]
+       soviez.sh --version
+       soviez.sh --list
+       soviez.sh --tune [--dry-run]
+       soviez.sh --platform-install
+       soviez.sh --reattach <operation-id>
+       soviez.sh --update <production-environment-id> [--release ID] [--offline-package PATH] [--confirm]
+       soviez.sh --update-status <operation-id>
+       soviez.sh --update-reattach <operation-id>
+       soviez.sh --update-cancel <operation-id>
+       soviez.sh --update-retry <operation-id>
+       soviez.sh --update-recover <operation-id>
+       soviez.sh --update-rollback <operation-id>
+       soviez.sh --update-cleanup <operation-id> --confirm
+       soviez.sh --update-image-status [--production ID]
+--- list ---
+TYPE        ID               DOMAIN                                   STATUS
+-           -                -                                        No environments found
+--- stage-list ---
+Stage ID | Domain | Status | Parent | Created | Cert

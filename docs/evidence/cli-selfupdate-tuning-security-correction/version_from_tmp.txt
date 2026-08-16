@@ -1,0 +1,4 @@
+Soviez.sh 0.24.6.0-platform-cli
+Channel: stable
+Artifact: sha256:073001d48d1bb33807b2bed27c60b498031e3b177d74ab764ad38fa6ebdc22f0
+Payload: /Volumes/PortableSSD/soviez-project/soviez-deploy/docs/evidence/cli-selfupdate-tuning-security-correction/_fixture_root/platform/current/soviez.sh

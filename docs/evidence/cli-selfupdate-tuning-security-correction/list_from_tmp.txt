@@ -1,0 +1,2 @@
+TYPE        ID               DOMAIN                                   STATUS
+-           -                -                                        No environments found

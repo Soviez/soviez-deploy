@@ -1,0 +1,256 @@
+Usage: soviez.sh --new [options]
+       soviez.sh --version
+       soviez.sh --list
+       soviez.sh --tune [--dry-run]
+       soviez.sh --platform-install
+       soviez.sh --reattach <operation-id>
+       soviez.sh --update <production-environment-id> [--release ID] [--offline-package PATH] [--confirm]
+       soviez.sh --update-status <operation-id>
+       soviez.sh --update-reattach <operation-id>
+       soviez.sh --update-cancel <operation-id>
+       soviez.sh --update-retry <operation-id>
+       soviez.sh --update-recover <operation-id>
+       soviez.sh --update-rollback <operation-id>
+       soviez.sh --update-cleanup <operation-id> --confirm
+       soviez.sh --update-image-status [--production ID]
+       soviez.sh --update-image-cleanup [--dry-run] [--production ID] [--confirm]
+       soviez.sh --update-image-cleanup --retry <operation-id>
+       soviez.sh --stage [options]
+       soviez.sh --stage-list
+       soviez.sh --stage-status <stage-id>
+       soviez.sh --stage-start <stage-id>
+       soviez.sh --stage-stop <stage-id>
+       soviez.sh --stage-backup <stage-id>
+       soviez.sh --stage-drop <stage-id>
+       soviez.sh --stage-reattach <operation-id>
+       soviez.sh --stage-retention-status [stage-id]
+       soviez.sh --stage-retention-extend <stage-id> --days <total-days>
+       soviez.sh --stage-retention-run <stage-id>
+       soviez.sh --stage-retention-retry <stage-id>
+       soviez.sh --stage-retention-reattach <operation-id>
+       soviez.sh --ssl-status [environment-id]
+       soviez.sh --ssl-renew <environment-id>
+       soviez.sh --ssl-repair <environment-id>
+       soviez.sh --ssl-reattach <operation-id>
+       soviez.sh --ssl-policy <environment-id> [automatic|notify_only|manual]
+       soviez.sh --ssl-try-again <environment-id>
+       soviez.sh --ssl-abort <environment-id>
+       soviez.sh --operations [--active|--failed|--environment ID|--type TYPE]
+       soviez.sh --operation-status <operation-id>
+       soviez.sh --operation-reattach <operation-id>
+       soviez.sh --operation-cancel <operation-id>
+       soviez.sh --operation-retry <operation-id>
+       soviez.sh --operation-recover <operation-id>
+       soviez.sh --operation-logs <operation-id>
+       soviez.sh --operation-reconcile [operation-id]
+       soviez.sh --backup <production-id> [--destination PROFILE] [--type full|database-only] [--advanced] [--confirm]
+       soviez.sh --backup-status <operation-id>
+       soviez.sh --backup-list [--production ID]
+       soviez.sh --backup-show <backup-id>
+       soviez.sh --backup-verify <backup-id>
+       soviez.sh --backup-restore-test <backup-id>
+       soviez.sh --backup-export <backup-id> --output PATH
+       soviez.sh --backup-import PATH [--confirm]
+       soviez.sh --backup-delete <backup-id> [--dry-run] [--confirm]
+       soviez.sh --backup-pin <backup-id>
+       soviez.sh --backup-unpin <backup-id>
+       soviez.sh --backup-retention-status [--production ID]
+       soviez.sh --backup-retention-cleanup [--production ID] [--dry-run] [--confirm]
+       soviez.sh --backup-destination-list
+       soviez.sh --backup-destination-show <profile-id>
+       soviez.sh --backup-destination-test <profile-id>
+       soviez.sh --backup-schedule-add <production-id> [--destination PROFILE]
+       soviez.sh --backup-schedule-list
+       soviez.sh --migration-discover <production-id>
+       soviez.sh --migration-discovery-show <discovery-id>
+       soviez.sh --migration-bootstrap-destination [--confirm]
+       soviez.sh --migration-bootstrap-status <operation-id>
+       soviez.sh --migration-bootstrap-export <bootstrap-id> --output PATH
+       soviez.sh --migration-bootstrap-import PATH
+       soviez.sh --migration-pair <production-id> --destination-code CODE [--confirm ...]
+       soviez.sh --migration-pair-status <pair-id>
+       soviez.sh --migration-pair-export <pair-id> --output PATH
+       soviez.sh --migration-pair-import PATH
+       soviez.sh --migration-readiness <pair-id>
+       soviez.sh --migration-readiness-show <report-id>
+       soviez.sh --migration-readiness-export <report-id> --output PATH
+       soviez.sh --migration-readiness-import PATH
+       soviez.sh --migration-stage-select <pair-id> --stage <stage-id>
+       soviez.sh --migration-stage-unselect <pair-id> --stage <stage-id>
+       soviez.sh --migration-abort <pair-id>
+       soviez.sh --migration-domain-plan <pair-id>
+       soviez.sh --migration-domain-plan-show <plan-id>
+       soviez.sh --migration-dns-challenge <pair-id> [--domain FQDN]
+       soviez.sh --migration-dns-challenge-create <pair-id> [--domain-plan PLAN_ID]
+       soviez.sh --migration-dns-show <challenge-id>
+       soviez.sh --migration-dns-challenge-verify <challenge-id>
+       soviez.sh --migration-dns-try-again <challenge-id>
+       soviez.sh --migration-dns-challenge-retry <pair-id>
+       soviez.sh --migration-dns-abort <challenge-id>
+       soviez.sh --migration-dns-challenge-abort <challenge-id>
+       soviez.sh --migration-dns-instructions <challenge-id> [--output PATH]
+       soviez.sh --migration-landing-prepare <pair-id>
+       soviez.sh --migration-landing-status <operation-id>
+       soviez.sh --migration-landing-cleanup <pair-id>
+       soviez.sh --migration-tls-prepare <pair-id> [--domain FQDN]
+       soviez.sh --migration-tls-status <operation-id>
+       soviez.sh --migration-tls-revoke <pair-id> [--fqdn FQDN]
+       soviez.sh --migration-routing-readiness <pair-id>
+       soviez.sh --migration-routing-show <plan-id>
+       soviez.sh --migration-domain-abort <pair-id>
+       soviez.sh --migration-transfer-plan <pair-id> [--routing-plan PLAN_ID] [--profile PROFILE]
+       soviez.sh --migration-transfer-plan-show <plan-id>
+       soviez.sh --migration-presync <pair-id> [--transfer-plan PLAN_ID]
+       soviez.sh --migration-presync-status <operation-id>
+       soviez.sh --migration-transfer-start <pair-id> [--routing-plan PLAN_ID] [--confirm] [--profile PROFILE]
+       soviez.sh --migration-transfer-status <operation-id>
+       soviez.sh --migration-transfer-pause <operation-id>
+       soviez.sh --migration-transfer-resume <operation-id>
+       soviez.sh --migration-transfer-cancel <operation-id>
+       soviez.sh --migration-transfer-retry <operation-id>
+       soviez.sh --migration-transfer-recover <operation-id>
+       soviez.sh --migration-destination-verify <operation-id>
+       soviez.sh --migration-transfer-abort <operation-id>
+       soviez.sh --migration-transfer-cleanup <operation-id> [--delete-staging --confirm]
+       soviez.sh --migration-stage-mark-mandatory <pair-id> --stage <stage-id>
+       soviez.sh --migration-stage-mark-optional <pair-id> --stage <stage-id>
+       soviez.sh --migration-authorization-plan <pair-id>
+       soviez.sh --migration-authorization-show <authorization-id>
+       soviez.sh --migration-activate-destination <pair-id> [--confirm] [--authorization-id ID]
+       soviez.sh --migration-activation-status <operation-id|authorization-id>
+       soviez.sh --migration-activation-retry <pair-id>
+       soviez.sh --migration-activation-recover <operation-id>
+       soviez.sh --migration-source-grace-status <source-production-id>
+       soviez.sh --migration-stage-rebind-status <operation-id>
+       soviez.sh --migration-phase21-readiness <operation-id|authorization-id>
+       soviez.sh --migration-phase21-readiness-show <report-id>
+       soviez.sh --migration-authorization-export <authorization-id> [--output PATH]
+       soviez.sh --migration-authorization-import PATH
+       soviez.sh --migration-cutover-plan <pair-id>
+       soviez.sh --migration-cutover-plan-show <plan-id>
+       soviez.sh --migration-cutover-start <pair-id> [--confirm]
+       soviez.sh --migration-cutover-status <operation-id>
+       soviez.sh --migration-cutover-retry <operation-id>
+       soviez.sh --migration-cutover-recover <operation-id>
+       soviez.sh --migration-cutover-dns-show <operation-id>
+       soviez.sh --migration-cutover-dns-try-again <operation-id>
+       soviez.sh --migration-cutover-rollback <operation-id> [--confirm]
+       soviez.sh --migration-traffic-owner-show <authorization-id>
+       soviez.sh --migration-phase22-readiness <authorization-id>
+       soviez.sh --migration-phase22-readiness-show <report-id>
+       soviez.sh --migration-stabilization-status <cutover-id>
+       soviez.sh --migration-rollback-window-close-plan <cutover-id>
+       soviez.sh --migration-rollback-window-close <cutover-id> [--confirm-phrase PHRASE]
+       soviez.sh --migration-rollback-window-close-status <operation-id>
+       soviez.sh --migration-source-archive-plan <source-id>
+       soviez.sh --migration-source-archive-start <source-id>
+       soviez.sh --migration-source-archive-status <operation-id>
+       soviez.sh --migration-source-archive-retry <operation-id>
+       soviez.sh --migration-source-archive-recover <operation-id>
+       soviez.sh --migration-source-license-finalize <operation-id>
+       soviez.sh --migration-source-credentials-status <operation-id>
+       soviez.sh --migration-source-runtime-suspend <operation-id>
+       soviez.sh --migration-source-retirement-status <source-id>
+       soviez.sh --migration-phase23-readiness <operation-id>
+       soviez.sh --migration-phase23-readiness-show <report-id>
+       soviez.sh --migration-status <operation-id>
+       soviez.sh --migration-reattach <operation-id>
+       soviez.sh --migration-cancel <operation-id>
+       soviez.sh --migration-retry <operation-id>
+       soviez.sh --migration-recover <operation-id>
+       soviez.sh --restore <production-id> --backup <backup-id> [--confirm]
+       soviez.sh --restore-status <operation-id>
+       soviez.sh --restore-cancel <operation-id>
+       soviez.sh --restore-retry <operation-id>
+       soviez.sh --restore-recover <operation-id>
+       soviez.sh --restore-rollback <operation-id> [--confirm]
+       soviez.sh --restore-cleanup <operation-id> [--confirm]
+       soviez.sh --restore-test <backup-id>
+       soviez.sh --restore-as-stage <backup-id> --stage-domain FQDN [--confirm]
+
+Options:
+  --new                 Start a new connected activation operation
+  --reattach ID         Reattach to an in-progress --new operation
+  --update ID           Safe Production update (exact Production ID required)
+  --release ID          Optional exact signed release id for --update
+  --offline-package PATH Signed offline update package (no network)
+  --confirm             Explicit confirmation (required for non-TTY / switch / cleanup)
+  --update-status ID    Update operation status + rollback window
+  --update-reattach ID  Reattach update operation
+  --update-cancel ID    Cancel within safe boundaries
+  --update-retry ID     Retry safe failed_retryable update steps
+  --update-recover ID   Recover/reconcile update operation
+  --update-rollback ID  Operator rollback within safety window
+  --update-cleanup ID   Cleanup candidate (keeps rollback set; requires --confirm)
+  --update-image-status [ --production ID ]  Soviez ERP image retention status
+  --update-image-cleanup [--dry-run] [--production ID] [--confirm] Exact image cleanup
+  --dry-run             Dry-run for image cleanup (no deletion)
+  --operations          List unified local operations registry
+  --operation-status ID Unified operation status
+  --operation-reattach ID Unified reattach (delegates to command adapters)
+  --operation-cancel ID Request cancellation within documented boundaries
+  --operation-retry ID  Retry a retryable/failed operation
+  --operation-recover ID Reconcile/recover an operation
+  --operation-logs ID   Tail redacted operation logs
+  --operation-reconcile [ID] Reconcile one or all operations
+  --stage               Create a Stage from a managed Production
+  --stage-id ID         Unique Stage identifier
+  --stage-domain FQDN   Mandatory Stage domain/subdomain
+  --production-tenant T Exact Production tenant id
+  --stage-list          List local Stages (no entitlement required)
+  --list                List all Soviez-managed environments (Production + Stage)
+  --version             Local platform version / channel / artifact digest
+  --tune [--dry-run]    Recalculate and apply safe Odoo/PostgreSQL/Docker sizing
+  --platform-install    Install modular platform payload + /usr/local/bin/soviez.sh launcher
+  --stage-status ID     Local Stage status
+  --stage-start ID      Start Stage (works after entitlement expiry)
+  --stage-stop ID       Stop Stage
+  --stage-backup ID     Backup Stage
+  --stage-drop ID       Drop Stage (explicit confirmation)
+  --stage-reattach ID   Resume Stage create operation
+  --stage-retention-status [ID]  Retention countdown / deadlines (local)
+  --stage-retention-extend ID --days N  Set total lifetime from creation (max 60)
+  --stage-retention-run ID       Run retention deletion if due (Safe Shield)
+  --stage-retention-retry ID     Retry blocked retention deletion
+  --stage-retention-reattach OP  Resume retention operation by id
+  --days N              Total Stage lifetime days from original creation
+  --yes                 Non-interactive confirm for retention extend
+  --ssl-status [ID]     Local certificate health (all or exact environment)
+  --ssl-renew ID        Manual/force certificate renewal
+  --ssl-repair ID       Repair certificate (force renew; never stops ERP)
+  --ssl-reattach OP     Reattach SSL renewal operation
+  --ssl-policy ID [MODE] View or set renewal mode (does not invalidate cert)
+  --ssl-try-again ID    Retry failed renewal
+  --ssl-abort ID        Abort Safely (preserve current certificate)
+  --offline-request     Export offline Stage authorization request
+  --offline-import PATH Import signed offline Stage package and create
+  --offline-bundle-inspect PATH   Inspect signed Phase 23 offline update bundle
+  --offline-bundle-plan PATH|ID   Plan offline update (dry-run)
+  --offline-bundle-import PATH    Import bundle into quarantine/staging
+  --offline-update-apply PATH|ID  Apply offline update (Phase 15 engine reuse)
+  --offline-update-status OP      Offline update operation status
+  --offline-update-result-export OP  Export signed result receipt
+  --offline-update-result-show FILE  Show/verify result receipt
+  --offline-trust-inspect PATH    Inspect signed trust package
+  --offline-trust-import PATH     Import newer signed trust package
+  --offline-phase24-readiness     Legacy Phase 23→24 readiness report (informational)
+  --security-status               Phase 24 security posture (STRICT_SIG / bypass / disposable)
+  --security-scan                 Run secret/dist security scan gate (Phase 24)
+  --security-scan-db              S3 compromise detection (DB/host/YARA/process; read-only)
+  --security-quarantine-create    S4 create quarantine record
+  --security-quarantine-status ID S4 quarantine status/report
+  --security-quarantine-scan ID   S4 pre-boot/S3 scan in quarantine
+  --security-quarantine-promote ID S4 explicit promote (never auto)
+  --security-quarantine-reject ID S4 reject quarantine
+  --security-update-check         S5 post-update network/PDF/DB safety gate
+  --security-backup-check         S5 backup posture/integrity/restore gate
+  --security-backup-retention     S5 bounded retention cleanup (owned only)
+  --security-phase25-readiness    Phase 25 readiness report only (Phase 25 remains unauthorized)
+  --security-check                S1 critical containment validate (fail-closed)
+  --security-harden               S1 remediate existing + re-validate
+  --security-report               Print last security report
+  --domain DOMAIN       Public domain (Production --new or Stage)
+  --activation METHOD   automatic|manual (default: automatic)
+  --channel CHANNEL     Release channel (default: stable)
+  --operation-id ID     Resume specific operation id
+  -h, --help            Show help

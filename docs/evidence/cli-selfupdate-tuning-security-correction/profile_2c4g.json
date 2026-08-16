@@ -1,0 +1,48 @@
+{
+  "cpu": 2,
+  "docker": {
+    "postgres_shm_mb": 365
+  },
+  "host_reserve_mb": 901,
+  "odoo": {
+    "gevent_port": null,
+    "http_port": 8069,
+    "limit_memory_hard": 346030080,
+    "limit_memory_soft": 230686720,
+    "limit_request": 8192,
+    "limit_time_cpu": 60,
+    "limit_time_real": 120,
+    "list_db": false,
+    "max_cron_threads": 1,
+    "proxy_mode": true,
+    "workers": 0
+  },
+  "postgres": {
+    "checkpoint_completion_target": 0.9,
+    "effective_cache_size_mb": 1306,
+    "effective_io_concurrency": 200,
+    "log_lock_waits": true,
+    "log_min_duration_statement_ms": 1000,
+    "maintenance_work_mem_mb": 104,
+    "max_connections": 48,
+    "max_parallel_workers": 1,
+    "max_parallel_workers_per_gather": 1,
+    "max_wal_size_mb": 2048,
+    "max_worker_processes": 2,
+    "min_wal_size_mb": 1024,
+    "random_page_cost": 1.1,
+    "shared_buffers_mb": 365,
+    "work_mem_mb": 26
+  },
+  "productions": 1,
+  "ram_mb": 4096,
+  "security_headroom_mb": 256,
+  "stage_reserve_mb": 327,
+  "stages": 1,
+  "topology": {
+    "http_backend": "127.0.0.1:8069",
+    "mode": "single_worker_compat",
+    "websocket_backend": "127.0.0.1:8069"
+  },
+  "usable_mb": 2612
+}

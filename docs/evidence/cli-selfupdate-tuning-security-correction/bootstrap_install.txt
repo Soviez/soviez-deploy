@@ -1,0 +1,10 @@
+[info] installed platform → /Volumes/PortableSSD/soviez-project/soviez-deploy/docs/evidence/cli-selfupdate-tuning-security-correction/_fixture_root/platform/current/soviez.sh
+[info] installed launcher → /Volumes/PortableSSD/soviez-project/soviez-deploy/docs/evidence/cli-selfupdate-tuning-security-correction/_fixture_root/bin/soviez.sh
+[info] digest sha256:073001d48d1bb33807b2bed27c60b498031e3b177d74ab764ad38fa6ebdc22f0
+[info] canonical command: soviez.sh (from any directory)
+
+Next:
+  soviez.sh --help
+  soviez.sh --version
+  soviez.sh --list
+  soviez.sh --tune --dry-run
