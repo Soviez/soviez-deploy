@@ -1,10 +1,11 @@
 # FRESH_INSTALL_2404
 
-- captured_utc: 2026-08-16T15:34:52Z
+- captured_utc: 2026-08-16T16:20:38Z
 - host: lima soviez-u2404 (Ubuntu 24.04.4 LTS Noble)
-- method: staging self-update apply to 0.24.6.2 (cert branch manifest) after mkdir hotfix on 0.24.6.1
-- artifact_sha256: fbd3a3eab448e4d34bcfd5b78d0178d72b4178ed71ccff2abb11a96f3f78a193
-- launcher install: PASS
-- bare PATH invocation: PASS
-- Docker Engine in Lima: BLOCKED (not installed)
-- listeners 8069/8072 and nginx websocket 101: BLOCKED
+- method: same staging bootstrap as 2204
+- artifact_sha256: dc16a4cde22e2e6142706b0e5937237028931ca1c3e352b356a22bfd966e051b
+- launcher  → PASS
+- bare PATH invocation → FAIL ( unbound)
+- with : version/list/stage-list/tune --dry-run → PASS
+- Docker Engine in Lima → BLOCKED (not installed; )
+- listeners 8069/8072 / nginx websocket 101 → BLOCKED (no Docker/Odoo stack)

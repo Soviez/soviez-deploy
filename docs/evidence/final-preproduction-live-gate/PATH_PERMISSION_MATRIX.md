@@ -4,7 +4,8 @@
 |---|---|---|---|
 | /usr/local/bin/soviez.sh | 755 | root:root | PASS |
 | /opt/soviez/platform/current/soviez.sh | 755 | root:root | PASS |
-| /opt/soviez/platform/current/trust/*.pub | public | root | PASS |
-| Private keys in VM/evidence | n/a | n/a | PASS (not copied) |
+| /opt/soviez/platform/current/trust/*.pub | public only | root | PASS (no private keys) |
+| Private keys in VM/evidence | — | — | PASS (not copied) |
 
-Blocker: platform install uses invalid chmod -p on Ubuntu (should be mkdir -p), breaking --platform-install apply.
+Notes:
+-  contains  (invalid on GNU chmod) which breaks  apply path after self-update decisions (see SELF_UPDATE evidence).

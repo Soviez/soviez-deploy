@@ -9,3 +9,12 @@ time="2026-08-16T16:05:57+03:00" level=info msg="Replacing `http_proxy` value `h
 time="2026-08-16T16:05:57+03:00" level=info msg="Replacing `https_proxy` value `http://127.0.0.1:57314` with `http://192.168.5.2:57314`"
 time="2026-08-16T16:05:57+03:00" level=info msg="Replacing `HTTP_PROXY` value `http://127.0.0.1:57314` with `http://192.168.5.2:57314`"
 time="2026-08-16T16:05:57+03:00" level=info msg="Replacing `HTTPS_PROXY` value `http://127.0.0.1:57314` with `http://192.168.5.2:57314`"
+time="2026-08-16T18:42:35+03:00" level=info msg="Starting the instance `colima` with internal VM driver `vz`"
+time="2026-08-16T18:42:35+03:00" level=info msg="Attempting to download the image" arch=aarch64 digest= location=/Volumes/PortableSSD/soviez-project/.cache/colima/caches/b0992ab88f5a3c0c436bbb3065c01466f20dc1dd0eb0a60299d410176f21a1c3
+time="2026-08-16T18:42:35+03:00" level=info msg="Decompressing the image (b0992ab88f5a3c0c436bbb3065c01466f20dc1dd0eb0a60299d410176f21a1c3)"
+time="2026-08-16T18:42:35+03:00" level=info msg="decompressing  with external \"gzip\""
+time="2026-08-16T18:42:40+03:00" level=info msg="Downloaded the image from `/Volumes/PortableSSD/soviez-project/.cache/colima/caches/b0992ab88f5a3c0c436bbb3065c01466f20dc1dd0eb0a60299d410176f21a1c3`"
+time="2026-08-16T18:42:40+03:00" level=info msg="[hostagent] time=\"2026-08-16T18:42:40+03:00\" level=warning msg=\"failed to detect whether running under rosetta, assuming false\" error=\"failed to read sysctl \\\"sysctl.proc_translated\\\": operation not permitted\""
+time="2026-08-16T18:42:40+03:00" level=info msg="[hostagent] time=\"2026-08-16T18:42:40+03:00\" level=fatal msg=\"another hostagent may already be running with pid 35303 (pidfile `/Volumes/PortableSSD/soviez-project/.lima/colima/ha.pid`)\""
+time="2026-08-16T18:42:40+03:00" level=fatal msg="host agent process has exited: exit status 1"
+time="2026-08-16T18:42:40+03:00" level=fatal msg="error starting vm: error at 'creating and starting': exit status 1"
