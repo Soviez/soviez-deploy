@@ -26,10 +26,11 @@
 
 - `proxy_mode = True`
 - `list_db = False`
-- Default `workers = 0` on first provision
+- Workers calculated by `soviez.sh --tune` (automatic sizing; may be 0 on small hosts)
+- When multi-worker: `gevent_port = 8072`
 
 ## Nginx generated highlights
 
 - Public `:80`/`:443`
-- Upstream to `127.0.0.1:HOST_PORT` → container 8069
-- `/websocket` on ERP template; S2 also adds `/longpolling` to same upstream
+- Upstream HTTP to `127.0.0.1:HOST_PORT` → container 8069
+- `/websocket` and `/longpolling` → evented backend `127.0.0.1:8072` when multi-worker topology is active

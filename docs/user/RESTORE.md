@@ -20,11 +20,11 @@ A restored DB is treated as **potentially hostile** until scanned: it may contai
 ## Commands
 
 ```bash
-./dist/soviez.sh --restore <production-id> --backup <backup-id> [--confirm]
-./dist/soviez.sh --restore-test <backup-id>
-./dist/soviez.sh --restore-as-stage <backup-id> --stage-domain FQDN [--confirm]
-./dist/soviez.sh --restore-status|cancel|retry|recover|rollback|cleanup <operation-id>
-./dist/soviez.sh --security-quarantine-status|scan|promote|reject [ID]
+soviez.sh --restore <production-id> --backup <backup-id> [--confirm]
+soviez.sh --restore-test <backup-id>
+soviez.sh --restore-as-stage <backup-id> --stage-domain FQDN [--confirm]
+soviez.sh --restore-status|cancel|retry|recover|rollback|cleanup <operation-id>
+soviez.sh --security-quarantine-status|scan|promote|reject [ID]
 ```
 
 ## Full restore depth

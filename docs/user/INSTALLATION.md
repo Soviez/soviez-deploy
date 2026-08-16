@@ -1,51 +1,71 @@
 # Installation
 
-**Version:** `0.24.5.3-registry-gateway`
+**Version:** `0.24.6.1-platform-cli`
 
-## Installer surfaces
+## Canonical customer command
 
-### A) Dual Production wizard (host + Production)
+```bash
+soviez.sh --help
+soviez.sh --version
+soviez.sh --list
+```
 
-**Paths:** `Soviez ERP/soviez.sh` and `soviez-deploy/soviez.sh` (supported dual; keep byte-identical for APT-lock safety).
+Preferred install location:
 
-| Command | Effect |
-|---------|--------|
-| `--init` | Bootstrap host: apt packages, Docker, Nginx, Certbot, UFW baselines |
-| `--new` | Provision Production ERP + PostgreSQL + Nginx site + TLS |
+```text
+/usr/local/bin/soviez.sh   → stable launcher
+/opt/soviez/platform/current/soviez.sh   → versioned platform payload
+```
 
-### B) Modular certified installer
+Works from any directory (including `/tmp`). Customers must not rely on repository paths such as `soviez.sh`.
 
-**Path:** `soviez-sh/dist/soviez.sh`  
-**Version:** `0.24.5.3-registry-gateway`  
-**SHA256:** `68ab59972d84d34f38c43862ca28946d3df3da5707fefa970230bd43e1da3460`
+## Bootstrap
 
-Provides Stage, update, backup/restore, migration, offline, security, SSL ops, operations engine.
+```bash
+curl -sSL https://soviez.sh | sudo bash
+```
+
+Public bootstrap installs the modular platform payload and PATH launcher. It does **not** leave the legacy unsigned wizard as the public runtime.
+
+## Modular platform artifact
+
+**Path (after install):** `/opt/soviez/platform/current/soviez.sh`  
+**Version:** `0.24.6.1-platform-cli`  
+**Build SHA256 (dist):** see `dist/soviez.sh.sha256` in the deploy repository after assemble.
+
+Provides Stage, update, backup/restore, migration, offline, security, SSL, tuning, and operations.
 
 ## What Soviez installs/configures
 
-- Docker Engine + Compose tooling as required by wizard
+- Docker Engine + Compose tooling as required
 - Nginx reverse proxy on 80/443
 - Certbot for Let's Encrypt (when domain validates)
-- UFW baselines (22/80/443)
+- Firewall baselines (22/80/443 public)
 - PostgreSQL in Docker (not published publicly)
-- Odoo/Soviez ERP container (loopback-published only)
+- Odoo/Soviez ERP container (loopback-published only: 8069 HTTP, 8072 evented when multi-worker)
+- Optional ClamAV packages when security harden/auto-install is enabled
 
 ## What Soviez does NOT install
 
 ```text
 Soviez.sh NEVER installs Webmin or Virtualmin.
-ClamAV, Wazuh, Falco, osquery, CrowdSec are not installed by default.
 ```
+
+## Platform self-update vs ERP update
+
+| Kind | Blocked by Technical Support expiry? |
+|------|--------------------------------------|
+| Soviez.sh platform / security / compatibility self-update | **No** |
+| ERP product/image update | **Yes** (entitlement-gated) |
 
 ## Failure / retry
 
-- Interrupted `--init` can be re-run; wizard is designed to resume missing pieces.
-- APT locks: **wait-or-fail** — Soviez does **not** `killall -9 apt/dpkg`.
+- APT locks: **wait-or-fail** — Soviez does **not** `killall` apt/dpkg or delete lockfiles.
 - After failure: check [TROUBLESHOOTING.md](TROUBLESHOOTING.md) and [RECOVERY.md](RECOVERY.md).
 
-## Verify artifact (modular)
+## Verify installed CLI
 
 ```bash
-sha256sum dist/soviez.sh
-# expect: 68ab59972d84d34f38c43862ca28946d3df3da5707fefa970230bd43e1da3460
+command -v soviez.sh
+soviez.sh --version
 ```

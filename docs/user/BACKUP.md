@@ -25,13 +25,13 @@ Off-host destinations (S3-compatible, SFTP) can be classified as DR-capable when
 ## Commands
 
 ```bash
-./dist/soviez.sh --backup <production-id> [--type full|database-only] [--destination PROFILE]
-./dist/soviez.sh --backup-list [--production ID]
-./dist/soviez.sh --backup-show|verify|pin|unpin|delete <backup-id>
-./dist/soviez.sh --backup-export <backup-id> --output PATH
-./dist/soviez.sh --backup-import PATH [--confirm]
-./dist/soviez.sh --backup-destination-list|show|test
-./dist/soviez.sh --security-backup-check
+soviez.sh --backup <production-id> [--type full|database-only] [--destination PROFILE]
+soviez.sh --backup-list [--production ID]
+soviez.sh --backup-show|verify|pin|unpin|delete <backup-id>
+soviez.sh --backup-export <backup-id> --output PATH
+soviez.sh --backup-import PATH [--confirm]
+soviez.sh --backup-destination-list|show|test
+soviez.sh --security-backup-check
 ```
 
 ## Integrity

@@ -19,12 +19,12 @@ Optional edge mode via `SOVIEZ_EDGE_MODE=cloudflare_aop` (not mandatory). See [C
 ## Modular SSL commands
 
 ```bash
-./dist/soviez.sh --ssl-status [environment-id]
-./dist/soviez.sh --ssl-renew <environment-id>
-./dist/soviez.sh --ssl-repair <environment-id>
-./dist/soviez.sh --ssl-policy <environment-id> [automatic|notify_only|manual]
-./dist/soviez.sh --ssl-try-again <environment-id>
-./dist/soviez.sh --ssl-abort <environment-id>
+soviez.sh --ssl-status [environment-id]
+soviez.sh --ssl-renew <environment-id>
+soviez.sh --ssl-repair <environment-id>
+soviez.sh --ssl-policy <environment-id> [automatic|notify_only|manual]
+soviez.sh --ssl-try-again <environment-id>
+soviez.sh --ssl-abort <environment-id>
 ```
 
 SSL operations are designed to **never stop ERP** as a side effect of renewal failure.

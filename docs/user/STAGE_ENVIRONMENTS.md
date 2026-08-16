@@ -30,15 +30,15 @@ absolute maximum total lifetime = 60 days from immutable original creation time
 ## Commands (modular)
 
 ```bash
-./dist/soviez.sh --stage --production-tenant <id> --stage-domain FQDN
-./dist/soviez.sh --stage-list
-./dist/soviez.sh --stage-status <stage-id>
-./dist/soviez.sh --stage-start|stop|backup|drop <stage-id>
-./dist/soviez.sh --stage-retention-status [stage-id]
-./dist/soviez.sh --stage-retention-extend <stage-id> --days N
-./dist/soviez.sh --stage-retention-run
-./dist/soviez.sh --stage --offline-request
-./dist/soviez.sh --stage --offline-import PATH
+soviez.sh --stage --production-tenant <id> --stage-domain FQDN
+soviez.sh --stage-list
+soviez.sh --stage-status <stage-id>
+soviez.sh --stage-start|stop|backup|drop <stage-id>
+soviez.sh --stage-retention-status [stage-id]
+soviez.sh --stage-retention-extend <stage-id> --days N
+soviez.sh --stage-retention-run
+soviez.sh --stage --offline-request
+soviez.sh --stage --offline-import PATH
 ```
 
 ## Domain / TLS / security

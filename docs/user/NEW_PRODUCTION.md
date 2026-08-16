@@ -3,7 +3,7 @@
 ## Wizard surface
 
 ```bash
-sudo ./soviez.sh --new
+sudo soviez.sh --new
 ```
 
 Creates Production ERP: Docker network, PostgreSQL, Odoo container (loopback publish), Nginx vhost, TLS, activation.
@@ -11,8 +11,8 @@ Creates Production ERP: Docker network, PostgreSQL, Odoo container (loopback pub
 ## Modular surface
 
 ```bash
-./dist/soviez.sh --new [--domain FQDN] [--activation automatic|manual] [--channel stable]
-./dist/soviez.sh --reattach <operation-id>
+soviez.sh --new [--domain FQDN] [--activation automatic|manual] [--channel stable]
+soviez.sh --reattach <operation-id>
 ```
 
 Starts a **connected activation operation** tracked by the unified operations engine (survives terminal disconnect).

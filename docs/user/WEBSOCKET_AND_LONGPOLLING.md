@@ -1,29 +1,32 @@
 # WebSocket and Longpolling
 
-**Status:** CODE-SYNCHRONIZED (post-cert discrepancy closure)  
-**Artifact:** `0.24.5.3-registry-gateway`
+**Status:** CODE-SYNCHRONIZED (multi-worker corrective architecture)  
+**Artifact:** `0.24.6.1-platform-cli`
 
-## Canonical certified topology (SUPPORTED_AND_CERTIFIED)
+## Canonical topology (SUPPORTED)
+
+When automatic sizing selects multiprocessing (`workers > 0`):
 
 ```text
-workers = 0
 proxy_mode = True
+list_db = False
+workers = <calculated>
+gevent_port = 8072
+
 Client :443 / WSS
- → Nginx (/websocket, /longpolling compatibility)
- → 127.0.0.1:HOST_PORT
- → Odoo HTTP :8069
+ → Nginx
+   /            → 127.0.0.1:8069   (HTTP workers)
+   /websocket   → 127.0.0.1:8072   (evented / gevent)
+   /longpolling → 127.0.0.1:8072   (compatibility)
 ```
 
-```text
-workers > 0 = NOT_SUPPORTED
-dedicated gevent_port publish = NOT_SUPPORTED
-```
+On very small hosts, sizing may select an explicit minimal fallback (`workers = 0`) with WebSocket on the HTTP backend.
 
-Resource tuning (`--formworkers`) may size memory/cgroups using a formula, but **Odoo workers remain 0**.
+Soviez automatically sizes runtime configuration from available server resources. Do not treat raw formulas as customer SLAs.
 
 ## Longpolling
 
-**COMPATIBILITY_ROUTED** — same upstream as `/websocket` / HTTP (not a separate gevent port).
+**COMPATIBILITY_ROUTED** — routed to the evented backend when multi-worker topology is active.
 
 ## Production & Stage
 
@@ -31,25 +34,25 @@ Both require `proxy_mode = True` behind Nginx. Stage conf writer includes `proxy
 
 ## Phase-12 SSL-owned Nginx
 
-SSL lifecycle owned templates include `/websocket` + `/longpolling` + Upgrade headers (template `phase12-ws1`). Requires host `map $http_upgrade $connection_upgrade` (ERP `soviez_limits` / S2).
+SSL lifecycle owned templates include `/websocket` + `/longpolling` + Upgrade headers (template `phase12-ws2`). Requires host `map $http_upgrade $connection_upgrade`.
 
 ## Ports
 
 | Port | Exposure |
 |------|----------|
 | 443 | PUBLIC WSS edge |
-| 8069 | LOOPBACK / NOT public |
-| 8071/8072 | NOT published; public = FAIL |
+| 8069 | LOOPBACK / NOT public (HTTP) |
+| 8072 | LOOPBACK / NOT public (evented/WebSocket) |
+| 8071 | NOT public |
 | 5432 | NEVER public |
 
 ## Troubleshooting
 
 | Symptom | Cause | Safe action |
 |---------|-------|-------------|
-| 404 `/websocket` | Old Nginx template | Re-render owned/S2/ERP site; do not open 8069 |
+| 404 `/websocket` | Old Nginx template | Re-render owned/S2 site; do not open 8069/8072 |
 | 400/426 | Missing Upgrade map | Ensure `soviez_limits.conf` / S2 map |
-| 502/504 | Upstream/host port wrong | Check `SOVIEZ_HOST_PORT` loopback publish |
-| Notifications missing | workers>0 without gevent | Set workers=0 (certified) |
-| Wrong gevent port | Expecting 8072 | Unsupported — use 8069 topology |
+| 502/504 | Upstream/host port wrong | Check loopback publish for 8069 and 8072 |
+| Notifications missing | workers>0 without gevent_port | Run `soviez.sh --tune` |
 
-Never expose 8069/8072 publicly to "fix" WebSocket.
+Never expose 8069 or 8072 publicly.

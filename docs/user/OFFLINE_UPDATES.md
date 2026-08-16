@@ -17,15 +17,15 @@ signed offline bundle
 ## Commands
 
 ```bash
-./dist/soviez.sh --offline-bundle-inspect PATH
-./dist/soviez.sh --offline-bundle-plan PATH|ID
-./dist/soviez.sh --offline-bundle-import PATH
-./dist/soviez.sh --offline-update-apply PATH|ID
-./dist/soviez.sh --offline-update-status OP
-./dist/soviez.sh --offline-update-result-export OP
-./dist/soviez.sh --offline-update-result-show FILE
-./dist/soviez.sh --offline-trust-inspect
-./dist/soviez.sh --offline-trust-import PATH
+soviez.sh --offline-bundle-inspect PATH
+soviez.sh --offline-bundle-plan PATH|ID
+soviez.sh --offline-bundle-import PATH
+soviez.sh --offline-update-apply PATH|ID
+soviez.sh --offline-update-status OP
+soviez.sh --offline-update-result-export OP
+soviez.sh --offline-update-result-show FILE
+soviez.sh --offline-trust-inspect
+soviez.sh --offline-trust-import PATH
 ```
 
 ## Guarantees

@@ -10,9 +10,9 @@
 ## Commands
 
 ```bash
-./dist/soviez.sh --operation-recover <id>
-./dist/soviez.sh --update-recover <id>
-./dist/soviez.sh --restore-recover <id>
-./dist/soviez.sh --migration-recover <id>
-./dist/soviez.sh --ssl-repair <env>
+soviez.sh --operation-recover <id>
+soviez.sh --update-recover <id>
+soviez.sh --restore-recover <id>
+soviez.sh --migration-recover <id>
+soviez.sh --ssl-repair <env>
 ```

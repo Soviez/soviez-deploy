@@ -9,6 +9,7 @@ Support expiry does NOT stop ERP.
 - ERP continues to operate.
 - **Product updates** are blocked according to entitlement policy only (`UPDATE_CAPABILITY_EXPIRED` class denials).
 - Backup, restore, status, diagnostics, and recovery remain available.
+- **Soviez.sh platform / security / compatibility self-update remains allowed** even when Technical Support is expired.
 
 ## Stage entitlement expiry
 
@@ -21,4 +22,4 @@ Existing Stages can still be listed, started, stopped, backed up, and dropped by
 
 ## SaaS unavailable
 
-ERP continues. Connected features that require SaaS (new activation, Registry pull, entitlement refresh) wait or fail closed without killing runtime.
+ERP continues. Connected features that require SaaS (new activation, Registry pull, entitlement refresh) wait or fail closed without killing runtime. Local commands (`--version`, `--list`, `--stage-list`, diagnostics, recovery) remain available.

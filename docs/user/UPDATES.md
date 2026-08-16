@@ -25,12 +25,12 @@ APT package locks: **wait-or-fail** (no killall).
 ## Commands
 
 ```bash
-./dist/soviez.sh --update <production-environment-id> --release <exact-release-id>
-./dist/soviez.sh --update-status <operation-id>
-./dist/soviez.sh --update-reattach <operation-id>
-./dist/soviez.sh --update-cancel|retry|recover|rollback <operation-id>
-./dist/soviez.sh --update-cleanup <operation-id> --confirm
-./dist/soviez.sh --security-update-check
+soviez.sh --update <production-environment-id> --release <exact-release-id>
+soviez.sh --update-status <operation-id>
+soviez.sh --update-reattach <operation-id>
+soviez.sh --update-cancel|retry|recover|rollback <operation-id>
+soviez.sh --update-cleanup <operation-id> --confirm
+soviez.sh --security-update-check
 ```
 
 ## Exact target

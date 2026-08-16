@@ -17,7 +17,7 @@ Bootstrap the Ubuntu host so Production can be created:
 ## Syntax
 
 ```bash
-sudo ./soviez.sh --init
+sudo soviez.sh --init
 ```
 
 ## Prerequisites

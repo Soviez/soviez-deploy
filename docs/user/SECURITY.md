@@ -24,14 +24,14 @@ Soviez is **security-hardened and certified**, not "unhackable".
 ## Commands
 
 ```bash
-./dist/soviez.sh --security-status
-./dist/soviez.sh --security-scan
-./dist/soviez.sh --security-scan-db
-./dist/soviez.sh --security-check
-./dist/soviez.sh --security-harden
-./dist/soviez.sh --security-report
-./dist/soviez.sh --security-update-check
-./dist/soviez.sh --security-backup-check
+soviez.sh --security-status
+soviez.sh --security-scan
+soviez.sh --security-scan-db
+soviez.sh --security-check
+soviez.sh --security-harden
+soviez.sh --security-report
+soviez.sh --security-update-check
+soviez.sh --security-backup-check
 ```
 
 ## Webmin / Virtualmin

@@ -27,15 +27,15 @@ Historical plan names `--merge-in` / `--migrate-in` were **never** implemented a
 ## Selected commands
 
 ```bash
-./dist/soviez.sh --migration-discover <production-id>
-./dist/soviez.sh --migration-bootstrap-destination [--confirm]
-./dist/soviez.sh --migration-pair <production-id> --destination-code CODE [--confirm]
-./dist/soviez.sh --migration-readiness <pair-id>
-./dist/soviez.sh --migration-transfer-start <pair-id> [--confirm]
-./dist/soviez.sh --migration-activate-destination <pair-id> [--confirm]
-./dist/soviez.sh --migration-cutover-start <pair-id> [--confirm]
-./dist/soviez.sh --migration-cutover-rollback <operation-id> [--confirm]
-./dist/soviez.sh --migration-status <operation-id>
+soviez.sh --migration-discover <production-id>
+soviez.sh --migration-bootstrap-destination [--confirm]
+soviez.sh --migration-pair <production-id> --destination-code CODE [--confirm]
+soviez.sh --migration-readiness <pair-id>
+soviez.sh --migration-transfer-start <pair-id> [--confirm]
+soviez.sh --migration-activate-destination <pair-id> [--confirm]
+soviez.sh --migration-cutover-start <pair-id> [--confirm]
+soviez.sh --migration-cutover-rollback <operation-id> [--confirm]
+soviez.sh --migration-status <operation-id>
 ```
 
 See [CLI_REFERENCE.md](CLI_REFERENCE.md) for the full migration flag list.

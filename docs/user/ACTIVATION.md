@@ -27,6 +27,6 @@ If SaaS is down during activation, connected activation cannot complete. **Alrea
 ## Modular commands
 
 ```bash
-./dist/soviez.sh --new [--activation automatic|manual] [--domain FQDN]
-./dist/soviez.sh --reattach <operation-id>
+soviez.sh --new [--activation automatic|manual] [--domain FQDN]
+soviez.sh --reattach <operation-id>
 ```

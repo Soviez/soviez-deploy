@@ -20,7 +20,7 @@
 - ZATCA historical immutability
 - No unsafe apt lock killing (wait-or-fail)
 - LOCAL_ONLY ≠ DR
-- Certified WebSocket topology: workers=0, proxy_mode=True, /websocket→8069 loopback
+- Certified WebSocket topology: automatic multi-worker when safe; HTTP 127.0.0.1:8069; evented/WebSocket 127.0.0.1:8072; Nginx public HTTPS only.
 - workers>0 / gevent publish: NOT_SUPPORTED
 - `--merge-in`: NOT_SUPPORTED (use `--migration-*`)
 - **NEVER publish Soviez internal server-side services inside `Soviez/soviez-deploy`.** Only customer-side deployment/runtime code required by Soviez.sh belongs there. This includes Registry Gateway server implementation, internal control-plane/token/registry services, and internal monitoring/ops components, unless the owner explicitly changes repository policy.
