@@ -36,6 +36,14 @@ soviez_stage_network_name_for() {
   printf 'soviez-net-stage-%s' "$1"
 }
 
+soviez_stage_inventory_corrupt_evidence_path() {
+  local idx
+  idx="$(soviez_stage_inventory_index)"
+  printf '%s.corrupt.%s\n' "$idx" "$(date -u +%Y%m%dT%H%M%SZ)"
+}
+
+# Load index JSON; on corrupt content: preserve evidence, clean operator error, non-zero exit.
+# Never prints Python traceback to the operator.
 soviez_stage_inventory_load_index() {
   local idx
   idx="$(soviez_stage_inventory_index)"
@@ -43,7 +51,35 @@ soviez_stage_inventory_load_index() {
     printf '{"stages":[]}\n'
     return 0
   fi
-  cat "$idx"
+  local raw out
+  raw="$(cat "$idx")"
+  out="$(mktemp)"
+  if ! SOVIEZ_IDX="$raw" python3 - "$out" <<'PY' 2>/dev/null
+import json, os, sys
+out_path = sys.argv[1]
+try:
+    data = json.loads(os.environ["SOVIEZ_IDX"])
+    if not isinstance(data, dict):
+        raise ValueError("index root must be object")
+    data.setdefault("stages", [])
+    if not isinstance(data["stages"], list):
+        raise ValueError("stages must be list")
+    open(out_path, "w", encoding="utf-8").write(json.dumps(data) + "\n")
+except Exception:
+    sys.exit(2)
+PY
+  then
+    rm -f "$out"
+    local evidence
+    evidence="$(soviez_stage_inventory_corrupt_evidence_path)"
+    cp -f "$idx" "$evidence" 2>/dev/null || true
+    echo "[error] STAGE_INVENTORY_CORRUPT: stage inventory JSON is unreadable" >&2
+    echo "[error] evidence preserved: ${evidence}" >&2
+    echo "[error] no automatic repair performed; fix or restore inventory manually" >&2
+    return 2
+  fi
+  cat "$out"
+  rm -f "$out"
 }
 
 soviez_stage_inventory_atomic_write() {
@@ -60,9 +96,17 @@ soviez_stage_inventory_atomic_write() {
 }
 
 soviez_stage_inventory_list_ids() {
-  SOVIEZ_IDX="$(soviez_stage_inventory_load_index)" python3 - <<'PY'
-import json, os
-data=json.loads(os.environ["SOVIEZ_IDX"])
+  local idx_json
+  if ! idx_json="$(soviez_stage_inventory_load_index)"; then
+    return 2
+  fi
+  SOVIEZ_IDX="$idx_json" python3 - <<'PY'
+import json, os, sys
+try:
+    data=json.loads(os.environ["SOVIEZ_IDX"])
+except Exception:
+    print("[error] STAGE_INVENTORY_CORRUPT: cannot parse stage inventory", file=sys.stderr)
+    sys.exit(2)
 for s in data.get("stages",[]):
     sid=s.get("stage_id") or ""
     if sid:

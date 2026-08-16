@@ -3,6 +3,11 @@
 
 soviez_stage_cmd_list() {
   soviez_stage_paths_init
+  local ids
+  if ! ids="$(soviez_stage_inventory_list_ids)"; then
+    # Corrupt inventory: clean message already printed; no traceback.
+    return 2
+  fi
   echo "Stage ID | Domain | Status | Parent | Created | Cert"
   local id
   while IFS= read -r id; do
@@ -10,14 +15,14 @@ soviez_stage_cmd_list() {
     local ident domain status parent created cert
     ident="$(soviez_stage_inventory_find "$id" 2>/dev/null || true)"
     [[ -n "$ident" ]] || continue
-    domain="$(soviez_json_get "$ident" stage_domain)"
-    status="$(soviez_json_get "$ident" lifecycle_status)"
-    parent="$(soviez_json_get "$ident" parent_production_tenant_id)"
-    created="$(soviez_json_get "$ident" created_at)"
+    domain="$(soviez_json_get "$ident" stage_domain 2>/dev/null || echo "-")"
+    status="$(soviez_json_get "$ident" lifecycle_status 2>/dev/null || echo unknown)"
+    parent="$(soviez_json_get "$ident" parent_production_tenant_id 2>/dev/null || echo "-")"
+    created="$(soviez_json_get "$ident" created_at 2>/dev/null || echo "-")"
     cert="$(soviez_json_get "$ident" origin_certificate_path 2>/dev/null || echo none)"
     [[ -n "$cert" && "$cert" != "null" && -f "$cert" ]] && cert="valid" || cert="missing"
     printf '%s | %s | %s | %s | %s | %s\n' "$id" "$domain" "$status" "$parent" "$created" "$cert"
-  done < <(soviez_stage_inventory_list_ids)
+  done <<<"$ids"
 }
 
 soviez_stage_cmd_status() {

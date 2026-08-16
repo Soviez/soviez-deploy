@@ -29,13 +29,19 @@ soviez_q_filestore_scan() {
     fi
     local st
     st="$(soviez_s3_yara_scan_paths "$yj" "${paths[@]}" 2>/dev/null || echo N/A)"
+    # Complementary ClamAV scan (never replaces YARA); do not treat PEM/keys as malware.
+    if declare -F soviez_clamav_scan_paths >/dev/null 2>&1; then
+      local cj="$d/filestore/clamav.json"
+      soviez_clamav_scan_paths "$cj" "${paths[@]}" >/dev/null 2>&1 || true
+    fi
     python3 - "$yj" "$out" "$st" <<'PY'
 import json,sys
 try: y=json.load(open(sys.argv[1]))
 except Exception: y={"findings":[]}
 st=sys.argv[3]
 json.dump({"status":st,"findings":y.get("findings") or [],"mutates_attachments":False,
-           "code":"SEC_WARN_FILESTORE_SUSPICIOUS_FILE" if st=="FAIL" else "SEC_OK"}, open(sys.argv[2],"w"), indent=2)
+           "code":"SEC_WARN_FILESTORE_SUSPICIOUS_FILE" if st=="FAIL" else "SEC_OK",
+           "engines":["yara","clamav_complementary"]}, open(sys.argv[2],"w"), indent=2)
 print(st)
 PY
   else
