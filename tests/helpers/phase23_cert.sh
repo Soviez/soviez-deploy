@@ -151,73 +151,15 @@ soviez_phase23_exact_fixture_reset() {
 }
 
 soviez_phase23_erp_fixture_ensure() {
-  # Phase 15/16/19 cert suites require labeled local ERP fixture tags with
-  # DISTINCT digests (update_final / Phase 15 treat v14→v15 as a real digest change).
-  # Restore tags from an already-present local RC image when missing (no pull, no unrelated deletion).
-  # Never retag both labels onto the same image ID — that yields UPDATE_ALREADY_CURRENT.
-  local id15 id14
-  id15="$(docker image inspect soviez/erp:p15-v15-labeled --format '{{.Id}}' 2>/dev/null || true)"
-  id14="$(docker image inspect soviez/erp:p15-v14-labeled --format '{{.Id}}' 2>/dev/null || true)"
-  if [[ -n "$id15" && -n "$id14" && "$id15" != "$id14" ]]; then
-    echo "[phase23-preflight] ERP fixture labels present (distinct digests)"
-    return 0
+  # Certification ERP fixtures via release catalog (not legacy p15-* tags).
+  local helper="$ROOT/tests/helpers/erp_release_fixture.sh"
+  if [[ -z "${ROOT:-}" ]]; then
+    ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+    helper="$ROOT/tests/helpers/erp_release_fixture.sh"
   fi
-
-  local src=""
-  src="$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -E '^soviez-erp:18\.0\.1\.01\.5-local-release-candidate-pass5$' | head -1 || true)"
-  [[ -n "$src" ]] || src="$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -E '^soviez-erp:18\.0\.1\.01\.5-local-release-candidate$' | head -1 || true)"
-  [[ -n "$src" ]] || src="$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -E '^soviez/soviez-erp:' | head -1 || true)"
-  # Prefer an already-distinct alternate local image for the "old" label when available.
-  local src_old=""
-  src_old="$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -E '^soviez/erp:p15-v13-labeled$' | head -1 || true)"
-  [[ -n "$src_old" ]] || src_old="$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -E '^soviez/erp:p15-v13$' | head -1 || true)"
-
-  if [[ -z "$src" && -z "$id15" && -z "$id14" ]]; then
-    echo "[phase23-preflight] FAIL: no local ERP image available to label as p15-v15/v14" >&2
-    return 1
-  fi
-  [[ -n "$src" ]] || src="${id15:-$id14}"
-
-  # Target (v15): plain tag of RC when missing or colliding.
-  if [[ -z "$id15" || ( -n "$id14" && "$id15" == "$id14" ) ]]; then
-    docker tag "$src" soviez/erp:p15-v15-labeled
-    id15="$(docker image inspect soviez/erp:p15-v15-labeled --format '{{.Id}}')"
-  fi
-
-  # Prior (v14): must differ from v15. Prefer a real older image; else commit with unique labels.
-  if [[ -z "$id14" || "$id14" == "$id15" ]]; then
-    if [[ -n "$src_old" ]]; then
-      local old_id
-      old_id="$(docker image inspect "$src_old" --format '{{.Id}}')"
-      if [[ "$old_id" != "$id15" ]]; then
-        docker tag "$src_old" soviez/erp:p15-v14-labeled
-      else
-        src_old=""
-      fi
-    fi
-    if [[ -z "$src_old" ]] || [[ "$(docker image inspect soviez/erp:p15-v14-labeled --format '{{.Id}}' 2>/dev/null || true)" == "$id15" ]]; then
-      local cid
-      cid="$(docker create "$src")"
-      docker commit \
-        --change 'LABEL com.soviez.managed=true' \
-        --change 'LABEL com.soviez.product=erp' \
-        --change 'LABEL com.soviez.release-id=p15-v14' \
-        --change 'LABEL com.soviez.image-digest=p15-v14' \
-        --change 'LABEL com.soviez.fixture-variant=p15-v14' \
-        --change 'LABEL org.opencontainers.image.version=p15-v14' \
-        --change 'LABEL org.opencontainers.image.revision=p15-v14' \
-        "$cid" soviez/erp:p15-v14-labeled >/dev/null
-      docker rm "$cid" >/dev/null
-    fi
-    id14="$(docker image inspect soviez/erp:p15-v14-labeled --format '{{.Id}}')"
-  fi
-
-  if [[ -z "$id15" || -z "$id14" || "$id15" == "$id14" ]]; then
-    echo "[phase23-preflight] FAIL: ERP fixture labels still not distinct (v15=$id15 v14=$id14)" >&2
-    return 1
-  fi
-  echo "[phase23-preflight] ERP fixture labels ensured distinct digests (v15=${id15:0:19}… v14=${id14:0:19}…)"
-  return 0
+  # shellcheck source=/dev/null
+  source "$helper"
+  soviez_test_erp_fixture_tags_ensure "${SOVIEZ_TEST_CERT_RELEASE:-cert-0.24.6.4}"
 }
 
 soviez_phase23_environment_preflight_report() {

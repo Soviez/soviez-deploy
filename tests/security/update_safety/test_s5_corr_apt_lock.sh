@@ -84,13 +84,19 @@ st="$(soviez_s5_apt_wait_for_lock 3 2>/dev/null || true)"
 echo "OK CORR-APT-004 unattended wait path ($st)"
 source "$ROOT/src/security/update_safety/apt_lock.sh"
 
-# --- CORR-APT-005: legacy installer uses safe handler ---
+# --- CORR-APT-005: supported Production paths stay fail-closed on apt kill ---
+# Public deploy `soviez.sh` is the PATH bootstrap (not the dual wizard).
+# Dual wizard remains in Soviez ERP; modular apt-lock policy lives in dist/.
 soviez_pkg_assert_installer_no_kill "$LEG" >/dev/null
 soviez_pkg_assert_installer_no_kill "$ERP" >/dev/null
-grep -q 'PKG_LOCK_TIMEOUT' "$LEG"
-grep -q 'will NOT kill package managers' "$LEG"
+soviez_pkg_assert_installer_no_kill "$ROOT/dist/soviez.sh" >/dev/null
+grep -q 'PKG_LOCK_TIMEOUT' "$ERP"
+grep -q 'will NOT kill package managers' "$ERP"
+grep -q 'PKG_LOCK_TIMEOUT' "$ROOT/dist/soviez.sh"
+grep -q 'never kill package managers' "$ROOT/src/security/update_safety/apt_lock.sh"
 ! grep -nE '^[[:space:]]*killall[[:space:]]+-9[[:space:]]+apt' "$LEG"
-echo "OK CORR-APT-005 legacy safe"
+! grep -nE '^[[:space:]]*killall[[:space:]]+-9[[:space:]]+apt' "$ERP"
+echo "OK CORR-APT-005 legacy+bootstrap+dist safe"
 
 # --- CORR-APT-006: static scan supported Production paths ---
 soviez_s5_apt_lock_healer_safe >/dev/null

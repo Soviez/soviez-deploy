@@ -21,7 +21,7 @@ soviez_p19_cert_env() {
   export SOVIEZ_TEST_MODE=1
   export SOVIEZ_MIG_FREEZE_WATCHDOG="${SOVIEZ_MIG_FREEZE_WATCHDOG:-0}"
   export SOVIEZ_MIG_FREEZE_KEEP_GUARD=1
-  export SOVIEZ_MIG_ERP_IMAGE="${SOVIEZ_MIG_ERP_IMAGE:-soviez/erp:p15-v15-labeled}"
+  export SOVIEZ_MIG_ERP_IMAGE="${SOVIEZ_MIG_ERP_IMAGE:-${SOVIEZ_TEST_ERP_CURRENT_IMAGE:-soviez-test/cert-current}}"
   export SOVIEZ_MIGRATION_SECRET="${SOVIEZ_MIGRATION_SECRET:-phase19-disposable-migration-secret-not-production}"
 }
 

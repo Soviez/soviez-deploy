@@ -4,6 +4,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 # shellcheck disable=SC1091
 source "$ROOT/tests/helpers/s1_platform.sh"
+# shellcheck source=/dev/null
+source "$ROOT/tests/helpers/erp_release_fixture.sh"
 s1_platform_source
 export DOCKER_HOST="${DOCKER_HOST:-unix:///Users/raafatagha/.colima/default/docker.sock}"
 RUN_ID="$(s1_run_id)"
@@ -21,8 +23,12 @@ echo "TEST-SEC Odoo functional least-privilege + reverse proxy"
 
 IMAGE="${SOVIEZ_S1_ERP_IMAGE:-}"
 if [[ -z "$IMAGE" ]]; then
-  for t in soviez/erp:p15-v15-labeled soviez-erp:18.0.1.01.5-local-release-candidate-pass5 soviez/erp:p15-v14-labeled; do
-    if docker image inspect "$t" >/dev/null 2>&1; then IMAGE="$t"; break; fi
+  if declare -F soviez_test_erp_fixture_tags_ensure >/dev/null 2>&1; then
+    soviez_test_erp_fixture_tags_ensure >/dev/null 2>&1 || true
+    IMAGE="${SOVIEZ_TEST_ERP_CURRENT_IMAGE:-}"
+  fi
+  for t in "$IMAGE" soviez-erp:18.0.1.01.5-local-release-candidate-pass5; do
+    [[ -n "$t" ]] && docker image inspect "$t" >/dev/null 2>&1 && { IMAGE="$t"; break; }
   done
 fi
 [[ -n "$IMAGE" ]] || { echo "FAIL no Soviez ERP image available" >&2; exit 1; }

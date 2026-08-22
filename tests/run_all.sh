@@ -10,6 +10,13 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:${PATH:-/usr/bin:/bin}"
 source "$ROOT/tests/helpers/rg_fallback.sh"
 # Optional Phase 23 fixture helpers (ERP labels / disk) when present.
 # shellcheck source=/dev/null
+source "$ROOT/tests/helpers/erp_release_fixture.sh" 2>/dev/null || true
+# shellcheck source=/dev/null
+source "$ROOT/tests/helpers/frozen_tree_guard.sh" 2>/dev/null || true
+if declare -F soviez_frozen_tree_guard_start >/dev/null 2>&1; then
+  soviez_frozen_tree_guard_start || true
+fi
+# shellcheck source=/dev/null
 source "$ROOT/tests/helpers/phase23_cert.sh" 2>/dev/null || true
 if declare -F soviez_phase23_erp_fixture_ensure >/dev/null 2>&1; then
   soviez_phase23_erp_fixture_ensure || true
@@ -227,6 +234,13 @@ if [[ -x tests/phase25_final_certification.sh ]]; then
   fi
 fi
 
+
+if declare -F soviez_frozen_tree_guard_verify >/dev/null 2>&1; then
+  soviez_frozen_tree_guard_verify || {
+    echo "run_all: MOVING_TREE_GUARD_FAILED" >&2
+    fail=1
+  }
+fi
 if [[ $fail -ne 0 ]]; then
   echo "run_all: FAILED" >&2
   exit 1

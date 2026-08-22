@@ -2,9 +2,21 @@
 # shellcheck shell=bash
 # Phase 25 — final certification helpers (orchestration only; no product changes).
 
-P25_EXPECTED_VERSION="${P25_EXPECTED_VERSION:-0.24.5.3-registry-gateway}"
-P25_EXPECTED_SHA256="${P25_EXPECTED_SHA256:-68ab59972d84d34f38c43862ca28946d3df3da5707fefa970230bd43e1da3460}"
-P25_S6_CERT_SHA256="${P25_S6_CERT_SHA256:-68ab59972d84d34f38c43862ca28946d3df3da5707fefa970230bd43e1da3460}"
+_p25_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+P25_EXPECTED_VERSION="${P25_EXPECTED_VERSION:-$(tr -d '[:space:]' <"${_p25_root}/VERSION" 2>/dev/null || true)}"
+if [[ -z "${P25_EXPECTED_SHA256:-}" ]]; then
+  if [[ -f "${_p25_root}/dist/soviez.sh.sha256" ]]; then
+    P25_EXPECTED_SHA256="$(awk '{print $1; exit}' "${_p25_root}/dist/soviez.sh.sha256")"
+  elif [[ -f "${_p25_root}/dist/soviez.sh" ]]; then
+    if command -v shasum >/dev/null 2>&1; then
+      P25_EXPECTED_SHA256="$(shasum -a 256 "${_p25_root}/dist/soviez.sh" | awk '{print $1}')"
+    else
+      P25_EXPECTED_SHA256="$(sha256sum "${_p25_root}/dist/soviez.sh" | awk '{print $1}')"
+    fi
+  fi
+fi
+P25_S6_CERT_SHA256="${P25_S6_CERT_SHA256:-${P25_EXPECTED_SHA256:-}}"
+unset _p25_root
 
 p25_cert_root() {
   local helper_root

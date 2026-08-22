@@ -3,6 +3,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 source "$ROOT/tests/helpers/assert.sh"
+source "$ROOT/tests/helpers/erp_release_fixture.sh"
 bash "$ROOT/build/assemble.sh" >/dev/null
 # shellcheck source=/dev/null
 source "$ROOT/dist/soviez.sh"
@@ -32,13 +33,13 @@ refs='{"references":[
 # Inject fake image list via env by monkeypatching classify input — call python path indirectly
 # Use dry-run path which needs docker; if docker unavailable skip live delete tests
 if soviez_image_docker_available; then
-  # Ensure labeled images exist from prior cert prep (or skip)
-  if docker image inspect soviez/erp:p15-v13-labeled >/dev/null 2>&1; then
-    # Create identity with current=v15 rollback=v14
+  soviez_test_erp_fixture_tags_ensure || true
+  if docker image inspect "${SOVIEZ_TEST_ERP_LEGACY_IMAGE:-}" >/dev/null 2>&1; then
+    # Create identity with current=prior catalog fixture rollback=prior tag legacy=legacy tag
     mkdir -p "$SOVIEZ_TENANT_DIR/prod-img/db"
-    v15="$(docker image inspect soviez/erp:p15-v15-labeled --format '{{.Id}}')"
-    v14="$(docker image inspect soviez/erp:p15-v14-labeled --format '{{.Id}}')"
-    v13="$(docker image inspect soviez/erp:p15-v13-labeled --format '{{.Id}}')"
+    v15="$(docker image inspect "${SOVIEZ_TEST_ERP_CURRENT_IMAGE}" --format '{{.Id}}')"
+    v14="$(docker image inspect "${SOVIEZ_TEST_ERP_PRIOR_IMAGE}" --format '{{.Id}}')"
+    v13="$(docker image inspect "${SOVIEZ_TEST_ERP_LEGACY_IMAGE}" --format '{{.Id}}')"
     python3 - <<PY > "$SOVIEZ_TENANT_DIR/prod-img/identity.json"
 import json
 print(json.dumps({
@@ -54,19 +55,19 @@ PY
     # Force window + confirm cleanup — v13 should be eligible if unused
     export SOVIEZ_IMAGE_CLEANUP_FORCE_WINDOW_ELAPSED=1
     # Create stopped container on v13 to prove protection
-    docker rm -f soviez-p15-stopped-v13 2>/dev/null || true
-    docker create --name soviez-p15-stopped-v13 soviez/erp:p15-v13-labeled sleep infinity >/dev/null
+    docker rm -f soviez-cert-stopped-legacy 2>/dev/null || true
+    docker create --name soviez-cert-stopped-legacy "${SOVIEZ_TEST_ERP_LEGACY_IMAGE}" sleep infinity >/dev/null
     dry2="$(soviez_image_cleanup_dry_run prod-img)"
     assert_contains "$dry2" protected
     # Remove stopped container then cleanup should be able to delete v13 if eligible
-    docker rm -f soviez-p15-stopped-v13 >/dev/null
+    docker rm -f soviez-cert-stopped-legacy >/dev/null
     out="$(soviez_image_cleanup_execute prod-img 1 "" 0)"
     assert_contains "$out" IMAGE_CLEANUP
     # current and rollback must still exist
     docker image inspect "$v15" >/dev/null
     docker image inspect "$v14" >/dev/null
   else
-    echo "NOTE: labeled soviez/erp:p15-v*-labeled images missing — docker classification skip" >&2
+    echo "NOTE: catalog ERP fixture tags missing — docker classification skip" >&2
   fi
 else
   echo "NOTE: Docker unavailable — prune gate only" >&2

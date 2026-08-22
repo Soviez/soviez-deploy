@@ -3,21 +3,23 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 source "$ROOT/tests/helpers/assert.sh"
+source "$ROOT/tests/helpers/erp_release_fixture.sh"
 export DOCKER_HOST="${DOCKER_HOST:-unix:///Users/raafatagha/.colima/default/docker.sock}"
-
-bash "$ROOT/build/assemble.sh" >/dev/null
-source "$ROOT/dist/soviez.sh"
 
 if ! docker info >/dev/null 2>&1; then
   echo "FAIL: Docker daemon required for Phase 15 final certification" >&2
   exit 1
 fi
+soviez_test_erp_fixture_tags_ensure || { echo "FAIL: ERP catalog fixture setup" >&2; exit 1; }
+
+bash "$ROOT/build/assemble.sh" >/dev/null
+source "$ROOT/dist/soviez.sh"
 
 export SOVIEZ_TEST_MODE=1
 export SOVIEZ_UPDATE_REAL_DOCKER=1
 export SOVIEZ_UPDATE_ASSUME_YES=1
 export SOVIEZ_MIGRATION_SECRET=phase15-disposable-migration-secret-not-production
-export SOVIEZ_UPDATE_REAL_IMAGE=soviez/erp:p15-v15-labeled
+export SOVIEZ_UPDATE_REAL_IMAGE="${SOVIEZ_TEST_ERP_CURRENT_IMAGE}"
 export SOVIEZ_UPDATE_REAL_PG_NAME=soviez-upd-pg-cert
 export SOVIEZ_UPDATE_SAFETY_WINDOW_HOURS=24
 unset SOVIEZ_UPDATE_FIXTURE_ADDON_FAIL SOVIEZ_UPDATE_FIXTURE_UPGRADE_FAIL SOVIEZ_UPDATE_FIXTURE_SWITCH_FAIL 2>/dev/null || true
@@ -39,24 +41,9 @@ soviez_update_paths_init
 HOST="$(hostname -f 2>/dev/null || hostname)"
 PROD=prod-final-a
 LIC=lic-final-a
-DIGEST_OLD="$(docker image inspect soviez/erp:p15-v14-labeled --format '{{.Id}}')"
-DIGEST_NEW="$(docker image inspect soviez/erp:p15-v15-labeled --format '{{.Id}}')"
-# Ensure v13-labeled exists before digest capture (prior cleanup may have deleted it)
-if ! docker image inspect soviez/erp:p15-v13-labeled >/dev/null 2>&1; then
-  src=soviez/erp:p15-v13
-  docker image inspect "$src" >/dev/null 2>&1 || src=soviez/erp:p15-v15-labeled
-  cid=$(docker create "$src")
-  docker commit \
-    --change "LABEL com.soviez.managed=true" \
-    --change "LABEL com.soviez.product=erp" \
-    --change "LABEL com.soviez.release-id=p15-v13" \
-    --change "LABEL com.soviez.image-digest=p15-v13" \
-    --change "LABEL org.opencontainers.image.version=p15-v13" \
-    --change "LABEL org.opencontainers.image.revision=p15-v13" \
-    "$cid" soviez/erp:p15-v13-labeled >/dev/null
-  docker rm "$cid" >/dev/null
-fi
-DIGEST_V13="$(docker image inspect soviez/erp:p15-v13-labeled --format '{{.Id}}')"
+DIGEST_OLD="$(docker image inspect "${SOVIEZ_TEST_ERP_PRIOR_IMAGE}" --format '{{.Id}}')"
+DIGEST_NEW="$(docker image inspect "${SOVIEZ_TEST_ERP_CURRENT_IMAGE}" --format '{{.Id}}')"
+DIGEST_V13="$(docker image inspect "${SOVIEZ_TEST_ERP_LEGACY_IMAGE}" --format '{{.Id}}')"
 
 mkdir -p "$SOVIEZ_TENANT_DIR/$PROD/db" "$SOVIEZ_TENANT_DIR/$PROD/filestore" "$SOVIEZ_TENANT_DIR/$PROD/addons"
 printf 'fixture\n' > "$SOVIEZ_TENANT_DIR/$PROD/db/dump.sql"
@@ -83,15 +70,15 @@ SOVIEZ_UPDATE_FIXTURE_RELEASE_JSON="$(python3 - <<PY
 import json
 print(json.dumps({
   "release_id":"rel-final-15","digest":"$DIGEST_NEW","signed":True,"signature":"sig-final",
-  "architecture":"$(uname -m)","erp_major":"18","image_ref":"soviez/erp:p15-v15-labeled",
+  "architecture":"$(uname -m)","erp_major":"18","image_ref":"${SOVIEZ_TEST_ERP_IMAGE_REF}",
 },separators=(",",":")))
 PY
 )"
 export SOVIEZ_UPDATE_FIXTURE_PULL_SESSION_JSON='{"ok":true,"token":"tok","expires_in":30}'
 
-docker image inspect soviez/erp:p15-v14-labeled >/dev/null
-docker image inspect soviez/erp:p15-v15-labeled >/dev/null
-docker image inspect soviez/erp:p15-v13-labeled >/dev/null
+docker image inspect "${SOVIEZ_TEST_ERP_PRIOR_IMAGE}" >/dev/null
+docker image inspect "${SOVIEZ_TEST_ERP_CURRENT_IMAGE}" >/dev/null
+docker image inspect "${SOVIEZ_TEST_ERP_LEGACY_IMAGE}" >/dev/null
 
 # Ensure shared PG exists for real path (S1: soviez_admin bootstrap)
 docker start "$SOVIEZ_UPDATE_REAL_PG_NAME" >/dev/null 2>&1 || \
@@ -266,9 +253,9 @@ import json
 print(json.dumps({"stage_id":"stage-final-1","parent_production_tenant_id":"$PROD","image_digest":"$DIGEST_V13"},separators=(",",":")))
 PY
 # Stopped container from an extra labeled image — create disposable tag copy if needed
-STOPPED_IMG=soviez/erp:p15-v13-labeled
-docker create --name soviez-p15-stopped-ref "$STOPPED_IMG" >/dev/null 2>&1 || true
-docker stop soviez-p15-stopped-ref >/dev/null 2>&1 || true
+STOPPED_IMG="${SOVIEZ_TEST_ERP_LEGACY_IMAGE}"
+docker create --name soviez-cert-stopped-ref "$STOPPED_IMG" >/dev/null 2>&1 || true
+docker stop soviez-cert-stopped-ref >/dev/null 2>&1 || true
 
 dry="$(soviez_image_cleanup_dry_run "$PROD")"
 assert_contains "$dry" IMAGE_CLEANUP_DRY_RUN
@@ -286,9 +273,9 @@ docker image inspect "$DIGEST_V13" >/dev/null
 
 # Remove stage + other prod + stopped container refs → v13 may become eligible
 rm -rf "$SOVIEZ_STAGES_DIR/stage-final-1" "$SOVIEZ_TENANT_DIR/prod-final-b"
-docker rm -f soviez-p15-stopped-ref >/dev/null 2>&1 || true
+docker rm -f soviez-cert-stopped-ref >/dev/null 2>&1 || true
 # Tag a disposable eligible image distinct from current/rollback for deletion proof
-# Use p15-v13-labeled only if no longer referenced
+# Use legacy fixture tag only if no longer referenced
 cleaned2="$(soviez_image_cleanup_execute "$PROD" 1 "" 0)"
 assert_contains "$cleaned2" IMAGE_CLEANUP
 # Forbidden prune static gate

@@ -8,14 +8,20 @@ run() {
   echo "==> security $t"
   if bash "$ROOT/$t"; then echo "OK $t"; else echo "FAIL $t" >&2; fail=1; fi
 }
-# S6 certificate must exist and match artifact
+# S6 certificate must exist, remain PASS, and name the current candidate artifact.
 if [[ ! -f "$ROOT/docs/evidence/security-gate-s6/SECURITY_CERTIFICATE.md" ]]; then
   echo "FAIL S6 certificate missing" >&2
   exit 1
 fi
-rg -q '78092b384b28dc45a93801c5d0acad7d90e4ca3e41cd0b235419c2eeeb6531ca' \
-  "$ROOT/docs/evidence/security-gate-s6/SECURITY_CERTIFICATE.md" || {
-  echo "FAIL S6 certificate SHA mismatch" >&2
+cur_ver="$(tr -d '[:space:]' <"$ROOT/VERSION")"
+cur_sha="$(awk '{print $1; exit}' "$ROOT/dist/soviez.sh.sha256" 2>/dev/null || true)"
+[[ -n "$cur_sha" ]] || cur_sha="$(shasum -a 256 "$ROOT/dist/soviez.sh" | awk '{print $1}')"
+rg -q "$cur_ver" "$ROOT/docs/evidence/security-gate-s6/SECURITY_CERTIFICATE.md" || {
+  echo "FAIL S6 certificate missing current version $cur_ver" >&2
+  exit 1
+}
+rg -q "$cur_sha" "$ROOT/docs/evidence/security-gate-s6/SECURITY_CERTIFICATE.md" || {
+  echo "FAIL S6 certificate SHA mismatch (expected $cur_sha)" >&2
   exit 1
 }
 rg -q 'OVERALL:' "$ROOT/docs/evidence/security-gate-s6/SECURITY_CERTIFICATE.md" && \

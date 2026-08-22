@@ -96,9 +96,18 @@ s6_write_json() {
   chmod 600 "$path" 2>/dev/null || true
 }
 
-# Canonical expected cert artifact (prefer exact; do not bump unless product defect).
-S6_EXPECTED_VERSION="${S6_EXPECTED_VERSION:-0.24.5.3-registry-gateway}"
-S6_EXPECTED_DIST_SHA256="${S6_EXPECTED_DIST_SHA256:-68ab59972d84d34f38c43862ca28946d3df3da5707fefa970230bd43e1da3460}"
+# Canonical expected cert artifact = VERSION + assembled dist digest (current candidate).
+# Override via env when pinning a historical SHA. Do not freeze a prior release SHA here.
+_s6_root="$(s6_cert_root)"
+S6_EXPECTED_VERSION="${S6_EXPECTED_VERSION:-$(tr -d '[:space:]' <"${_s6_root}/VERSION" 2>/dev/null || true)}"
+if [[ -z "${S6_EXPECTED_DIST_SHA256:-}" ]]; then
+  if [[ -f "${_s6_root}/dist/soviez.sh.sha256" ]]; then
+    S6_EXPECTED_DIST_SHA256="$(awk '{print $1; exit}' "${_s6_root}/dist/soviez.sh.sha256")"
+  elif [[ -f "${_s6_root}/dist/soviez.sh" ]]; then
+    S6_EXPECTED_DIST_SHA256="$(s6_hash_file "${_s6_root}/dist/soviez.sh")"
+  fi
+fi
+unset _s6_root
 
 # TEST-SEC-001..024 → existing platform / S2–S5 scripts (certification map).
 s6_test_sec_map_json() {

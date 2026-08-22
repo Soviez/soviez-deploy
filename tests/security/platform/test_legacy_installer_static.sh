@@ -10,7 +10,7 @@ soviez_sec_legacy_assert_installer_safe "$ERP"
 soviez_sec_legacy_assert_installer_safe "$LEG"
 soviez_sec_legacy_assert_apt_lock_safe "$ERP"
 soviez_sec_legacy_assert_apt_lock_safe "$LEG"
-cmp -s "$ERP" "$LEG"
-# Explicit: no destructive package-lock heal remains
+# Public deploy bootstrap is not the ERP dual wizard; both must remain statically safe.
 ! grep -nE '^[[:space:]]*killall[[:space:]]+-9[[:space:]]+apt' "$LEG"
-echo "PASS legacy installer static"
+! grep -nE '^[[:space:]]*killall[[:space:]]+-9[[:space:]]+apt' "$ERP"
+echo "PASS legacy installer static (ERP wizard + deploy bootstrap, distinct)"

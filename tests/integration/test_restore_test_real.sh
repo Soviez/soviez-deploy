@@ -3,21 +3,24 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 source "$ROOT/tests/helpers/assert.sh"
+source "$ROOT/tests/helpers/erp_release_fixture.sh"
 export DOCKER_HOST="${DOCKER_HOST:-unix:///Users/raafatagha/.colima/default/docker.sock}"
+
+soviez_test_erp_fixture_tags_ensure || { echo "FAIL: ERP catalog fixture setup" >&2; exit 1; }
 
 bash "$ROOT/build/assemble.sh" >/dev/null
 # shellcheck source=/dev/null
 source "$ROOT/dist/soviez.sh"
 
 docker info >/dev/null 2>&1 || { echo "FAIL: Docker required" >&2; exit 1; }
-docker image inspect soviez/erp:p15-v15-labeled >/dev/null 2>&1 || {
-  echo "FAIL: soviez/erp:p15-v15-labeled required" >&2; exit 1
+docker image inspect "${SOVIEZ_TEST_ERP_CURRENT_IMAGE}" >/dev/null 2>&1 || {
+  echo "FAIL: ${SOVIEZ_TEST_ERP_CURRENT_IMAGE} required (from release catalog)" >&2; exit 1
 }
 docker image inspect postgres:16 >/dev/null 2>&1 || docker pull postgres:16 >/dev/null
 
 export SOVIEZ_TEST_MODE=1
 export SOVIEZ_BACKUP_RESTORE_TEST_REAL=1
-export SOVIEZ_BACKUP_RESTORE_TEST_IMAGE=soviez/erp:p15-v15-labeled
+export SOVIEZ_BACKUP_RESTORE_TEST_IMAGE="${SOVIEZ_TEST_ERP_CURRENT_IMAGE}"
 export SOVIEZ_BACKUP_RESTORE_TEST_PG_NAME=soviez-bk-rtest-pg-cert
 export SOVIEZ_BACKUP_RESTORE_TEST_CLEAN=1
 export SOVIEZ_BACKUP_PASSPHRASE="p16-rtest-passphrase-not-production"
@@ -45,7 +48,7 @@ print(json.dumps({
   "filestore_path":"$SOVIEZ_TENANT_DIR/$PROD/filestore",
   "database_path":"$SOVIEZ_TENANT_DIR/$PROD/db",
   "addons_path":"$SOVIEZ_TENANT_DIR/$PROD/addons",
-  "current_digest":"$(docker image inspect soviez/erp:p15-v15-labeled --format '{{.Id}}')",
+  "current_digest":"$(docker image inspect "${SOVIEZ_TEST_ERP_CURRENT_IMAGE}" --format '{{.Id}}')",
 },separators=(",",":")))
 PY
 
@@ -89,7 +92,7 @@ inject_fail() {
   bash -c '
     source "'"$ROOT"'/dist/soviez.sh"
     export SOVIEZ_TEST_MODE=1 SOVIEZ_BACKUP_RESTORE_TEST_REAL=1
-    export SOVIEZ_BACKUP_RESTORE_TEST_IMAGE=soviez/erp:p15-v15-labeled
+    export SOVIEZ_BACKUP_RESTORE_TEST_IMAGE="${SOVIEZ_TEST_ERP_CURRENT_IMAGE}"
     export SOVIEZ_BACKUP_RESTORE_TEST_PG_NAME=soviez-bk-rtest-pg-cert
     export SOVIEZ_BACKUP_RESTORE_TEST_CLEAN=1
     export SOVIEZ_BACKUP_PASSPHRASE="'"$SOVIEZ_BACKUP_PASSPHRASE"'"

@@ -71,8 +71,10 @@ done
 
 bash "$ROOT/build/assemble.sh" >/dev/null
 ver="$(grep -m1 '^# version:' "$ROOT/dist/soviez.sh" | sed 's/^# version:[[:space:]]*//' | tr -d '[:space:]')"
-if [[ "$ver" != "0.21.0-phase21" && "$ver" != "0.22.0-phase22" && "$ver" != "0.23.0-phase23" && "$ver" != "0.24.0-phase24" && "$ver" != "0.24.1-security-s1" && "$ver" != "0.24.2-security-s2" && "$ver" != "0.24.3-security-s3" && "$ver" != "0.24.4-security-s4" && "$ver" != "0.24.5-security-s5" && "$ver" != "0.24.5.1-security-s5-corr1" && "$ver" != "0.24.5.2-postcert-corr1" && "$ver" != "0.24.5.3-registry-gateway" ]]; then
-  echo "FAIL: dist/soviez.sh version '$ver' (expected 0.21–0.24 phase installers)"
+# shellcheck source=/dev/null
+source "$ROOT/tests/helpers/dist_version.sh"
+if ! soviez_test_accept_dist_version "$ver"; then
+  echo "FAIL: dist/soviez.sh version '$ver' (expected 0.21–0.24 / 0.24.6.x-platform-cli)"
   fail=1
 fi
 

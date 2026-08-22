@@ -1,0 +1,71 @@
+# UNTRACKED_FILE_CLASSIFICATION
+
+Original untracked count: 67
+
+- `docs/evidence/cli-invocation-self-update-audit/CLI_ENTRYPOINT_MAP.md` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/cli-invocation-self-update-audit/COMMAND_PREFLIGHT_MATRIX.md` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/cli-invocation-self-update-audit/CORRECTIVE_PLAN_IF_REQUIRED.md` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/cli-invocation-self-update-audit/DUAL_WIZARD_ENTRYPOINT_AUDIT.md` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/cli-invocation-self-update-audit/FINAL_REPORT.md` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/cli-invocation-self-update-audit/GAP_CLASSIFICATION.md` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/cli-invocation-self-update-audit/GIT_DIFF_SUMMARY.md` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/cli-invocation-self-update-audit/INSTALLED_PATH_AUDIT.md` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/cli-invocation-self-update-audit/LIST_COMMAND_AUDIT.md` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/cli-invocation-self-update-audit/PATH_PRECEDENCE_AUDIT.md` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/cli-invocation-self-update-audit/PUBLIC_COMMAND_MATRIX.md` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/cli-invocation-self-update-audit/PUBLIC_DOC_COMMAND_DRIFT.md` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/cli-invocation-self-update-audit/REAL_INSTALLED_CLI_TEST.md` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/cli-invocation-self-update-audit/REAL_STAGE_LIST_TEST.md` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/cli-invocation-self-update-audit/SELF_UPDATE_CALL_GRAPH.md` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/cli-invocation-self-update-audit/SELF_UPDATE_CONCURRENCY.md` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/cli-invocation-self-update-audit/SELF_UPDATE_ENTITLEMENT_POLICY.md` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/cli-invocation-self-update-audit/SELF_UPDATE_FAILURE_MATRIX.md` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/cli-invocation-self-update-audit/SELF_UPDATE_OFFLINE_BEHAVIOR.md` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/cli-invocation-self-update-audit/SELF_UPDATE_SECURITY.md` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/cli-invocation-self-update-audit/SELF_UPDATE_SOURCE_AUDIT.md` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/cli-invocation-self-update-audit/SELF_UPDATE_TEST_RESULTS.md` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/cli-invocation-self-update-audit/SERVICE_ARCHITECTURE.md` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/cli-invocation-self-update-audit/STAGE_LIST_RUNTIME_TRACE.md` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/cli-invocation-self-update-audit/SYSTEMD_UNITS.md` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/cli-invocation-self-update-audit/UPDATE_TYPE_MATRIX.md` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/cli-invocation-self-update-audit/VERSION_SOURCE_MAP.md` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/cli-invocation-self-update-audit/artifact-help.out` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/cli-invocation-self-update-audit/artifact-public-flags.txt` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/cli-invocation-self-update-audit/artifact-stage-list-corrupt.err` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/cli-invocation-self-update-audit/artifact-stage-list-empty.out` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/cli-invocation-self-update-audit/artifact-stage-list-fixture.out` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/cli-invocation-self-update-audit/dist-sha256.txt` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/cli-invocation-self-update-audit/flag-count.txt` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/contract-runtime-implementation-closure/RUN_ALL_FOLLOWUP.md` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/contract-runtime-implementation-closure/run_all.pid` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/final-live-runtime-closure/CLI_FINAL.md` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/final-live-runtime-closure/FAILURE_BASELINE.md` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/final-live-runtime-closure/FAILURE_TRIAGE_MATRIX.md` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/final-live-runtime-closure/FINAL_ARTIFACT.md` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/final-live-runtime-closure/FINAL_REPORT.md` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/final-live-runtime-closure/POSTGRES_SECURITY_LIVE.md` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/final-live-runtime-closure/RELEASE_BLOCKERS.md` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/final-live-runtime-closure/u2404_host_audit.txt` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/public-web-docs-sync/CURRENT_SITE_INVENTORY.md` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/public-web-docs-sync/DOCS_SITE_CONTENT_AUDIT.md` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/public-web-docs-sync/DOC_SOURCE_MAP.md` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/public-web-docs-sync/FINAL_REPORT.md` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/public-web-docs-sync/INFORMATION_ARCHITECTURE.md` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/public-web-docs-sync/INTERNAL_DOCS_EXCLUSION.md` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/public-web-docs-sync/KEEP_REMOVE_REWRITE_PLAN.md` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/public-web-docs-sync/PUBLIC_DOCS_MANIFEST.md` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/public-web-docs-sync/SOVIEZ_SH_CONTENT_AUDIT.md` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/registry-gateway-and-main-publication/SAAS_BUILD_CORRECTION.md` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `services/README.md` → UNRELATED_USER_WORK / out-of-scope services tree — do not commit
+- `services/migration-authorization-ledger/ledger.py` → UNRELATED_USER_WORK / out-of-scope services tree — do not commit
+- `services/stage-operation-helper/ARTIFACT.md` → UNRELATED_USER_WORK / out-of-scope services tree — do not commit
+- `services/stage-operation-helper/package-lock.json` → UNRELATED_USER_WORK / out-of-scope services tree — do not commit
+- `services/stage-operation-helper/package.json` → UNRELATED_USER_WORK / out-of-scope services tree — do not commit
+- `services/stage-operation-helper/src/cli.ts` → UNRELATED_USER_WORK / out-of-scope services tree — do not commit
+- `services/stage-operation-helper/src/index.ts` → UNRELATED_USER_WORK / out-of-scope services tree — do not commit
+- `services/stage-operation-helper/src/ledger.ts` → UNRELATED_USER_WORK / out-of-scope services tree — do not commit
+- `services/stage-operation-helper/src/neutralization.ts` → UNRELATED_USER_WORK / out-of-scope services tree — do not commit
+- `services/stage-operation-helper/src/ticket.ts` → UNRELATED_USER_WORK / out-of-scope services tree — do not commit
+- `services/stage-operation-helper/test/helper.test.ts` → UNRELATED_USER_WORK / out-of-scope services tree — do not commit
+- `services/stage-operation-helper/tsconfig.json` → UNRELATED_USER_WORK / out-of-scope services tree — do not commit
+- `tests/helpers/dist_version.sh` → VALID_RECONCILE_TEST_FIX — commit

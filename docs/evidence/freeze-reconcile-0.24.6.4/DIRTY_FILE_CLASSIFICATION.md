@@ -1,0 +1,51 @@
+# DIRTY_FILE_CLASSIFICATION
+
+Original modified count: 47
+
+- `docs/evidence/phase-16-final-certification-closure/HOST_REBOOT_MATRIX.md` → GENERATED_RUN_ALL_EVIDENCE — do not commit
+- `docs/evidence/phase-25-final-certification/DOCUMENTATION_SYNC.md` → SUPERSEDED_MOVING_TREE_EVIDENCE/GENERATED_EVIDENCE_CHURN — reverted, do not commit
+- `docs/evidence/phase-25-final-certification/E2E_CERTIFICATION_MATRIX.md` → SUPERSEDED_MOVING_TREE_EVIDENCE/GENERATED_EVIDENCE_CHURN — reverted, do not commit
+- `docs/evidence/phase-25-final-certification/ENGINEERING_COMPLETION_CERTIFICATE.md` → SUPERSEDED_MOVING_TREE_EVIDENCE/GENERATED_EVIDENCE_CHURN — reverted, do not commit
+- `docs/evidence/phase-25-final-certification/EVIDENCE_INTEGRITY.md` → SUPERSEDED_MOVING_TREE_EVIDENCE/GENERATED_EVIDENCE_CHURN — reverted, do not commit
+- `docs/evidence/phase-25-final-certification/FINAL_REPORT.md` → SUPERSEDED_MOVING_TREE_EVIDENCE/GENERATED_EVIDENCE_CHURN — reverted, do not commit
+- `docs/evidence/phase-25-final-certification/MULTI_TENANT_CERTIFICATION.md` → SUPERSEDED_MOVING_TREE_EVIDENCE/GENERATED_EVIDENCE_CHURN — reverted, do not commit
+- `docs/evidence/phase-25-final-certification/RELEASE_READINESS_CHECKLIST.md` → SUPERSEDED_MOVING_TREE_EVIDENCE/GENERATED_EVIDENCE_CHURN — reverted, do not commit
+- `docs/evidence/phase-25-final-certification/SAAS_BACKEND_CERTIFICATION.md` → SUPERSEDED_MOVING_TREE_EVIDENCE/GENERATED_EVIDENCE_CHURN — reverted, do not commit
+- `docs/evidence/phase-25-final-certification/artifacts/ARTIFACT_PROVENANCE.md` → SUPERSEDED_MOVING_TREE_EVIDENCE/GENERATED_EVIDENCE_CHURN — reverted, do not commit
+- `docs/evidence/phase-25-final-certification/artifacts/FINAL_ARTIFACT_CERTIFICATION.md` → SUPERSEDED_MOVING_TREE_EVIDENCE/GENERATED_EVIDENCE_CHURN — reverted, do not commit
+- `docs/evidence/phase-25-final-certification/audit/DOCUMENTATION_SYNC.md` → SUPERSEDED_MOVING_TREE_EVIDENCE/GENERATED_EVIDENCE_CHURN — reverted, do not commit
+- `docs/evidence/phase-25-final-certification/baseline/BASELINE_SNAPSHOT.md` → SUPERSEDED_MOVING_TREE_EVIDENCE/GENERATED_EVIDENCE_CHURN — reverted, do not commit
+- `docs/evidence/phase-25-final-certification/hashes/DOCUMENTATION_SYNC.md.sha256` → SUPERSEDED_MOVING_TREE_EVIDENCE/GENERATED_EVIDENCE_CHURN — reverted, do not commit
+- `docs/evidence/phase-25-final-certification/hashes/E2E_CERTIFICATION_MATRIX.md.sha256` → SUPERSEDED_MOVING_TREE_EVIDENCE/GENERATED_EVIDENCE_CHURN — reverted, do not commit
+- `docs/evidence/phase-25-final-certification/hashes/ENGINEERING_COMPLETION_CERTIFICATE.md.sha256` → SUPERSEDED_MOVING_TREE_EVIDENCE/GENERATED_EVIDENCE_CHURN — reverted, do not commit
+- `docs/evidence/phase-25-final-certification/hashes/EVIDENCE_INTEGRITY.md.sha256` → SUPERSEDED_MOVING_TREE_EVIDENCE/GENERATED_EVIDENCE_CHURN — reverted, do not commit
+- `docs/evidence/phase-25-final-certification/hashes/FINAL_REPORT.md.sha256` → SUPERSEDED_MOVING_TREE_EVIDENCE/GENERATED_EVIDENCE_CHURN — reverted, do not commit
+- `docs/evidence/phase-25-final-certification/hashes/MULTI_TENANT_CERTIFICATION.md.sha256` → SUPERSEDED_MOVING_TREE_EVIDENCE/GENERATED_EVIDENCE_CHURN — reverted, do not commit
+- `docs/evidence/phase-25-final-certification/hashes/RELEASE_READINESS_CHECKLIST.md.sha256` → SUPERSEDED_MOVING_TREE_EVIDENCE/GENERATED_EVIDENCE_CHURN — reverted, do not commit
+- `docs/evidence/phase-25-final-certification/hashes/SAAS_BACKEND_CERTIFICATION.md.sha256` → SUPERSEDED_MOVING_TREE_EVIDENCE/GENERATED_EVIDENCE_CHURN — reverted, do not commit
+- `docs/evidence/phase-25-final-certification/hashes/artifacts__ARTIFACT_PROVENANCE.md.sha256` → SUPERSEDED_MOVING_TREE_EVIDENCE/GENERATED_EVIDENCE_CHURN — reverted, do not commit
+- `docs/evidence/phase-25-final-certification/hashes/artifacts__FINAL_ARTIFACT_CERTIFICATION.md.sha256` → SUPERSEDED_MOVING_TREE_EVIDENCE/GENERATED_EVIDENCE_CHURN — reverted, do not commit
+- `docs/evidence/phase-25-final-certification/hashes/audit__DOCUMENTATION_SYNC.md.sha256` → SUPERSEDED_MOVING_TREE_EVIDENCE/GENERATED_EVIDENCE_CHURN — reverted, do not commit
+- `docs/evidence/phase-25-final-certification/hashes/baseline__BASELINE_SNAPSHOT.md.sha256` → SUPERSEDED_MOVING_TREE_EVIDENCE/GENERATED_EVIDENCE_CHURN — reverted, do not commit
+- `docs/evidence/phase-25-final-certification/hashes/matrix__E2E_CERTIFICATION_MATRIX.md.sha256` → SUPERSEDED_MOVING_TREE_EVIDENCE/GENERATED_EVIDENCE_CHURN — reverted, do not commit
+- `docs/evidence/phase-25-final-certification/matrix/E2E_CERTIFICATION_MATRIX.md` → SUPERSEDED_MOVING_TREE_EVIDENCE/GENERATED_EVIDENCE_CHURN — reverted, do not commit
+- `docs/evidence/security-gate-s6/SECURITY_CERTIFICATE.md` → SUPERSEDED_MOVING_TREE_EVIDENCE/GENERATED_EVIDENCE_CHURN — reverted, do not commit
+- `tests/final_certification/security_matrix.sh` → VALID_RECONCILE_TEST_FIX — commit
+- `tests/helpers/p25_cert.sh` → VALID_RECONCILE_TEST_FIX — commit
+- `tests/helpers/s6_cert.sh` → VALID_RECONCILE_TEST_FIX — commit
+- `tests/security/platform/test_legacy_installer_static.sh` → VALID_RECONCILE_TEST_FIX — commit
+- `tests/security/s6/test_s6_installer_parity.sh` → VALID_RECONCILE_TEST_FIX — commit
+- `tests/security/test_phase20_static_forbidden.sh` → VALID_RECONCILE_TEST_FIX — commit
+- `tests/security/test_phase21_static_forbidden.sh` → VALID_RECONCILE_TEST_FIX — commit
+- `tests/security/test_phase22_static_forbidden.sh` → VALID_RECONCILE_TEST_FIX — commit
+- `tests/security/test_phase24_dist_scan.sh` → VALID_RECONCILE_TEST_FIX — commit
+- `tests/security/update_safety/test_s5_corr_apt_lock.sh` → VALID_RECONCILE_TEST_FIX — commit
+- `tests/unit/test_platform_selfupdate_ed25519.sh` → VALID_RECONCILE_TEST_FIX — commit
+- `?? docs/evidence/cli-invocation-self-update-audit/` → UNCLASSIFIED
+- `?? docs/evidence/contract-runtime-implementation-closure/RUN_ALL_FOLLOWUP.md` → UNCLASSIFIED
+- `?? docs/evidence/contract-runtime-implementation-closure/run_all.pid` → UNCLASSIFIED
+- `?? docs/evidence/final-live-runtime-closure/` → UNCLASSIFIED
+- `?? docs/evidence/public-web-docs-sync/` → UNCLASSIFIED
+- `?? docs/evidence/registry-gateway-and-main-publication/SAAS_BUILD_CORRECTION.md` → UNCLASSIFIED
+- `?? services/` → UNCLASSIFIED
+- `?? tests/helpers/dist_version.sh` → UNCLASSIFIED
