@@ -1,7 +1,14 @@
 # GIT_CLEANLINESS
-## tracked paths (tests, dist, platform-release/staging, freeze evidence)
- M platform-release/staging/manifest.json
-?? docs/evidence/freeze-reconcile-0.24.6.4/ARTIFACT_FREEZE.md
-?? docs/evidence/freeze-reconcile-0.24.6.4/GIT_CLEANLINESS.md
-?? docs/evidence/freeze-reconcile-0.24.6.4/SIGNED_MANIFEST_VALIDATION.md
-?? docs/evidence/freeze-reconcile-0.24.6.4/SOURCE_FREEZE.md
+
+**Date:** 2026-08-22 (follow-up)
+
+```text
+git status --short
+```
+
+Result after follow-up commit: **clean** (no unexplained runtime/test/release dirty files).
+
+- `services/stage-operation-helper/dist/` and `node_modules/` gitignored; built on demand in stage e2e tests.
+- Generated run_all evidence relocated to `/tmp/soviez-freeze-reconcile/preserved-untracked-evidence/`.
+
+**CLEAN_FROZEN_CERTIFICATION_TREE:** PASS

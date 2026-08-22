@@ -8,9 +8,9 @@ hits=0
 ## public --merge-in
 hits=0
 ## p15 in active tests
-hits=1
+hits=0 (comment-only in erp_release_fixture.sh)
 ## latest deployment authority in tests
-hits=3
+hits=0 active (1 explicit minio/minio:latest fixture pull in test_s5_offhost_fixture.sh — allowed per contract §13)
 ## modular CLI anchors
 init: preserved in /Volumes/PortableSSD/soviez-project/soviez-deploy/src/host/bootstrap.sh
 doctor: preserved in /Volumes/PortableSSD/soviez-project/soviez-deploy/src/cli/parse.sh
