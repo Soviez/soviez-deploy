@@ -281,3 +281,18 @@ Installer **`0.24.5.2-postcert-corr1`**. Evidence: `docs/evidence/post-cert-disc
 - Artifact bytes unchanged: `0.24.5.3-registry-gateway` / `68ab59972d84d34f38c43862ca28946d3df3da5707fefa970230bd43e1da3460`
 - Evidence: `docs/evidence/public-deploy-boundary-correction/`
 - Commercial Production Release: NOT AUTHORIZED; Gateway not deployed by this correction
+
+## D132 — Soviez.sh product contract canonicalization (2026-08-22)
+
+**SUPERSEDES (operator-facing):** D129 **D2 WebSocket** workers=0-only / workers>0 NOT_SUPPORTED; D128 wizard-only as permanent public model; D130 artifact pin as current operator version.
+
+**New canonical authority:** `docs/SOVIEZ_SH_PRODUCT_CONTRACT.md` + `docs/IMPLEMENTATION_STATUS_MATRIX.md`.
+
+- Public CLI: `/usr/local/bin/soviez.sh` only (not `./dist/soviez.sh`)
+- Adaptive workers: `workers=0` small-host fallback OR multi-worker with `:8072` evented
+- Named releases (`Sam0.x`) + immutable digest; `latest` not deployment authority
+- `--doctor`, `--release-status`, `--safe-mode`, `--tune --explain`: approved; matrix distinguishes certified vs pending
+- ClamAV + YARA complementary baseline (not either/or)
+- Platform build: `0.24.6.3-platform-cli` / SHA `43de932f…`
+- Evidence: `docs/evidence/soviez-sh-documentation-canonicalization/`
+- Runtime changes: **NONE** (documentation pass only)

@@ -4,8 +4,10 @@
 
 **Status:** Confirmed decision for planning. Implementation not authorized until the owner opens a subsequent phase.
 
-**Last updated:** 2026-08-12 (Phase 25 PASS; Engineering 100%; Security Platform CERTIFIED; Official Documentation CANONICAL / CODE-SYNCHRONIZED; installer `0.24.5.1-security-s5-corr1`; Release NOT AUTHORIZED)  
+**Last updated:** 2026-08-22 (Soviez.sh product contract canonicalization; platform `0.24.6.3-platform-cli`; Release NOT AUTHORIZED)  
 **Authority:** Project owner. Future AI/developers must obey this document over convenience.
+
+**Soviez.sh product contract (canonical):** `docs/SOVIEZ_SH_PRODUCT_CONTRACT.md` — when this constitution and that contract overlap on CLI/lifecycle/security, the product contract is the operator-facing authority; this constitution remains binding for commercial/entitlement architecture.
 
 ---
 
