@@ -3,8 +3,8 @@
 **Status:** CANONICAL / CONTRACT-ALIGNED  
 **Canonical product contract:** [SOVIEZ_SH_PRODUCT_CONTRACT.md](SOVIEZ_SH_PRODUCT_CONTRACT.md)  
 **Implementation matrix:** [IMPLEMENTATION_STATUS_MATRIX.md](IMPLEMENTATION_STATUS_MATRIX.md)  
-**Platform build:** `0.24.6.3-platform-cli`  
-**SHA256 (dist):** `43de932f2be866f245f2b0b694112c93e811054cd2ccd13fec21df0977897781`  
+**Platform build:** `0.24.6.4-platform-cli`  
+**SHA256 (dist):** `c76c59e9e11401ca63673445d9e8415df48cb0364a2a8ed4710356355360937f`  
 **Engineering:** 100% COMPLETE · **Security Platform:** CERTIFIED · **Release:** NOT AUTHORIZED
 
 This tree describes Soviez.sh per the **owner-approved product contract**. Certified runtime behavior is distinguished from approved-but-not-yet-implemented features via the implementation matrix. Historical phase evidence lives under `docs/evidence/` and must not be treated as current operator documentation without checking supersession notes.

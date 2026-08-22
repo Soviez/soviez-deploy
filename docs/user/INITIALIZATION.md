@@ -34,10 +34,10 @@ Use the `soviez.sh` on PATH (`/usr/local/bin/soviez.sh`).
 
 | Path | Status |
 |------|--------|
-| Dual Production wizard `--init` | **CERTIFIED_LIVE** (Ubuntu 22.04/24.04) |
-| Modular PATH CLI `--init` | **APPROVED_NOT_IMPLEMENTED** (convergence in progress) |
+| Modular PATH CLI `--init` | **IMPLEMENTED_NOT_CERTIFIED** (`0.24.6.4-platform-cli`) |
+| Dual Production wizard | **Delegates** to modular platform when `/usr/local/bin/soviez.sh` is installed |
 
-During convergence, host bootstrap may route through the dual wizard compatibility layer after public bootstrap install. See [IMPLEMENTATION_STATUS_MATRIX.md](../IMPLEMENTATION_STATUS_MATRIX.md).
+Legacy wizard entry points must not implement independent provisioning. See [IMPLEMENTATION_STATUS_MATRIX.md](../IMPLEMENTATION_STATUS_MATRIX.md).
 
 ## Prerequisites
 

@@ -2,7 +2,7 @@
 
 **Audience:** server administrators, customers, consultants, DevOps, support.  
 **Product contract:** [../SOVIEZ_SH_PRODUCT_CONTRACT.md](../SOVIEZ_SH_PRODUCT_CONTRACT.md)  
-**Platform build:** `0.24.6.3-platform-cli`
+**Platform build:** `0.24.6.4-platform-cli`
 
 Start here if you operate Soviez hosts. You do not need to read source code.
 
@@ -77,4 +77,4 @@ There is **no** public `--merge-in` command. Migration uses `--migration-*` only
 
 **Customer CLI:** `soviez.sh` on PATH (`/usr/local/bin/soviez.sh`). Do not invoke from repository `dist/` or checkout paths.
 
-**`--init`:** Approved on the public PATH CLI per product contract. **Currently certified** on the dual Production wizard during PATH convergence — see [INITIALIZATION.md](INITIALIZATION.md) and [IMPLEMENTATION_STATUS_MATRIX.md](../IMPLEMENTATION_STATUS_MATRIX.md).
+**`--init`:** Implemented on the public PATH CLI (`0.24.6.4`). Live certification pending — see [INITIALIZATION.md](INITIALIZATION.md) and [IMPLEMENTATION_STATUS_MATRIX.md](../IMPLEMENTATION_STATUS_MATRIX.md).
