@@ -1,11 +1,13 @@
 # Soviez.sh Official Documentation
 
-**Status:** CANONICAL / CODE-SYNCHRONIZED  
-**Certified installer:** `0.24.5.3-registry-gateway`  
-**SHA256:** `68ab59972d84d34f38c43862ca28946d3df3da5707fefa970230bd43e1da3460`  
+**Status:** CANONICAL / CONTRACT-ALIGNED  
+**Canonical product contract:** [SOVIEZ_SH_PRODUCT_CONTRACT.md](SOVIEZ_SH_PRODUCT_CONTRACT.md)  
+**Implementation matrix:** [IMPLEMENTATION_STATUS_MATRIX.md](IMPLEMENTATION_STATUS_MATRIX.md)  
+**Platform build:** `0.24.6.3-platform-cli`  
+**SHA256 (dist):** `43de932f2be866f245f2b0b694112c93e811054cd2ccd13fec21df0977897781`  
 **Engineering:** 100% COMPLETE · **Security Platform:** CERTIFIED · **Release:** NOT AUTHORIZED
 
-This is the **official Source of Truth** for Soviez.sh. It describes what the code and certified tests do **now**. Historical phase evidence lives under `docs/evidence/` and must not be treated as current operator documentation.
+This tree describes Soviez.sh per the **owner-approved product contract**. Certified runtime behavior is distinguished from approved-but-not-yet-implemented features via the implementation matrix. Historical phase evidence lives under `docs/evidence/` and must not be treated as current operator documentation without checking supersession notes.
 
 ## Choose your audience
 
@@ -17,13 +19,15 @@ This is the **official Source of Truth** for Soviez.sh. It describes what the co
 | **Security Reference** | [docs/security/](security/) | Security platform operator/reference docs |
 | **Certification Evidence** | [docs/evidence/](evidence/) | Historical PASS packs (immutable) |
 
-## Product surfaces (do not confuse)
+## Product surfaces
 
-| Surface | Path | Role |
-|---------|------|------|
-| **Modular installer (canonical artifact)** | `soviez-sh/dist/soviez.sh` | Certified operations CLI (update, Stage, backup, restore, migration, security, offline) |
-| **Dual Production wizard (supported)** | `Soviez ERP/soviez.sh` ≡ `soviez-deploy/soviez.sh` | Host bootstrap `--init`, Production `--new`, Nginx/Docker provisioning |
-| **SaaS backend** | `soviez-saas/` | Entitlements, Registry tickets, offline issuance, migration authorization (UI frozen) |
+| Surface | Customer path | Role |
+|---------|---------------|------|
+| **Soviez.sh CLI (public)** | `/usr/local/bin/soviez.sh` | Single customer executable; operations, Stage, backup, restore, migration, security, tuning |
+| **Dual Production wizard (internal/compatibility)** | `Soviez ERP/soviez.sh` | Interim host `--init` until modular PATH convergence; not a second public lifecycle |
+| **SaaS backend** | `soviez-saas/` (Soviez-operated) | Entitlements, Registry tickets, offline issuance — not required for ERP runtime |
+
+Customers must not use repository-relative paths or `dist/` artifacts. Do not use repo checkouts as the customer install path.
 
 ## Quick facts
 

@@ -1,6 +1,6 @@
 # Installation
 
-**Version:** `0.24.6.1-platform-cli`
+**Version:** `0.24.6.3-platform-cli`
 
 ## Canonical customer command
 
@@ -30,7 +30,7 @@ Public bootstrap installs the modular platform payload and PATH launcher. It doe
 ## Modular platform artifact
 
 **Path (after install):** `/opt/soviez/platform/current/soviez.sh`  
-**Version:** `0.24.6.1-platform-cli`  
+**Version:** `0.24.6.3-platform-cli`  
 **Build SHA256 (dist):** see `dist/soviez.sh.sha256` in the deploy repository after assemble.
 
 Provides Stage, update, backup/restore, migration, offline, security, SSL, tuning, and operations.

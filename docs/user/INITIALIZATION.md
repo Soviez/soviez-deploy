@@ -1,24 +1,43 @@
 # Initialization (`--init`)
 
-**Surface:** Dual Production wizard only (`Soviez ERP/soviez.sh` / `soviez-deploy/soviez.sh`).  
-**Not a modular `soviez-sh` CLI flag.**
+**Approved contract:** [SOVIEZ_SH_PRODUCT_CONTRACT.md](../SOVIEZ_SH_PRODUCT_CONTRACT.md) §4
 
 ## Purpose
 
-Bootstrap the Ubuntu host so Production can be created:
+Prepare and harden the server for Soviez:
 
-- Package repositories / apt updates (wait-or-fail on locks)
-- Docker
+- OS validation (Ubuntu 22.04/24.04 LTS)
+- Package/security update preflight (apt wait-or-fail)
+- Docker Engine
+- Soviez platform installation and filesystem layout
+- Docker networks
 - Nginx
-- Certbot
-- UFW allow 22/80/443
-- Supporting utilities
+- Firewall (default deny; 22/80/443 public)
+- AppArmor validation
+- Fail2Ban
+- Unattended security updates
+- ClamAV + YARA/native security integration (baseline)
+- System services and security validation
+- Idempotent re-run
+
+**Must never:** install Webmin or Virtualmin.
 
 ## Syntax
 
 ```bash
 sudo soviez.sh --init
 ```
+
+Use the `soviez.sh` on PATH (`/usr/local/bin/soviez.sh`).
+
+## Implementation status
+
+| Path | Status |
+|------|--------|
+| Dual Production wizard `--init` | **CERTIFIED_LIVE** (Ubuntu 22.04/24.04) |
+| Modular PATH CLI `--init` | **APPROVED_NOT_IMPLEMENTED** (convergence in progress) |
+
+During convergence, host bootstrap may route through the dual wizard compatibility layer after public bootstrap install. See [IMPLEMENTATION_STATUS_MATRIX.md](../IMPLEMENTATION_STATUS_MATRIX.md).
 
 ## Prerequisites
 
@@ -28,13 +47,13 @@ sudo soviez.sh --init
 
 ## Effects
 
-Creates/updates host packages and services required by Production. Does **not** create a tenant by itself.
+Creates/updates host packages and services required for Production. Does **not** create a tenant by itself.
 
 ## What it does NOT do
 
 - Does not install Webmin/Virtualmin
-- Does not open 8069/5432 publicly
-- Does not kill apt/dpkg processes to clear locks
+- Does not open 8069/8071/8072/5432 publicly
+- Does not kill apt/dpkg or delete lockfiles
 
 ## Resume
 

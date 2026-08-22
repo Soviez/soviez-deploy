@@ -1,7 +1,7 @@
 # WebSocket and Longpolling
 
 **Status:** CODE-SYNCHRONIZED (multi-worker corrective architecture)  
-**Artifact:** `0.24.6.1-platform-cli`
+**Artifact:** `0.24.6.3-platform-cli`
 
 ## Canonical topology (SUPPORTED)
 

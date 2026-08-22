@@ -2,7 +2,7 @@
 
 **Sources of truth:**  
 - Modular platform: `src/cli/parse.sh` + `src/entrypoint.sh` → installed as `/usr/local/bin/soviez.sh`  
-- Version: `0.24.6.1-platform-cli`
+- Version: `0.24.6.3-platform-cli`
 
 **Canonical invocation:** `soviez.sh ...` from any directory.
 

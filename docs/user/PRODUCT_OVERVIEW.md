@@ -1,56 +1,65 @@
 # Product Overview
 
-**Audience:** operators · **Version:** `0.24.5.3-registry-gateway`
+**Audience:** operators · **Platform build:** `0.24.6.3-platform-cli`  
+**Contract:** [SOVIEZ_SH_PRODUCT_CONTRACT.md](../SOVIEZ_SH_PRODUCT_CONTRACT.md)
 
 ## What Soviez.sh is
 
-Soviez.sh is the **sovereign host installer and operations plane** for **Soviez ERP** (Odoo 18–based enterprise ERP). It installs and manages Production and Stage environments, TLS, Docker, PostgreSQL, Nginx, updates, backups, migration, and security controls on Ubuntu servers.
+Soviez.sh is the **sovereign host installer and operations plane** for **Soviez ERP** (Odoo 18–based enterprise ERP). It is a **CLI**, not a permanently running daemon. It installs and manages Production and Stage environments, TLS, Docker, PostgreSQL, Nginx, updates, backups, migration, and security controls on Ubuntu servers.
+
+**Customer command:**
+
+```bash
+soviez.sh ...
+```
+
+Installed at `/usr/local/bin/soviez.sh`.
 
 ## Relationship to Soviez ERP
 
 | Component | Role |
 |-----------|------|
-| Soviez ERP | Business application (Odoo 18 foundation + Soviez addons) |
-| Soviez.sh modular (`dist/soviez.sh`) | Certified operations CLI |
-| Dual Production wizard (`Soviez ERP/soviez.sh` ≡ `soviez-deploy/soviez.sh`) | Host bootstrap (`--init`) and Production provision (`--new`) |
-| Soviez SaaS | Entitlements, Registry tickets, offline bundle issuance, migration authorization |
+| Soviez ERP | Business application (Odoo 18 + Soviez addons), deployed from **Docker Hub** images by digest |
+| Soviez.sh | Public PATH CLI for host prep, lifecycle, Stage, backup, restore, migration, security, tuning |
+| Soviez SaaS | Entitlement resolver (Stripe is a commercial origin, not the authority); not required for ERP runtime |
+
+ERP is **not** deployed by GitHub source checkout in normal customer flows.
 
 ## What it manages
 
-- Ubuntu host packages (via wizard `--init`): Docker, Nginx, Certbot, UFW baselines
-- Production ERP + PostgreSQL containers
-- Stage environments (commercially entitled)
-- Domains, TLS, Nginx edge
-- Connected and offline updates
-- Backups / restores (with quarantine for untrusted)
-- Soviez-to-Soviez migration
-- Security Platform (S1–S6 certified)
+- Ubuntu host hardening (`--init`): Docker, Nginx, Certbot, UFW, AppArmor, Fail2Ban, security updates, ClamAV/YARA baseline (per contract)
+- Production ERP + PostgreSQL containers (private network, loopback backends)
+- Stage environments with resource isolation and retention (14d default, 60d max)
+- Named releases (`Sam0.x`) → immutable image digests; `latest` is not deployment authority
+- Domains, TLS, Nginx edge (including adaptive WebSocket routing)
+- Platform self-update (Ed25519 + SHA256) vs ERP product update (entitlement-gated)
+- Backups / restores (quarantine for untrusted)
+- Soviez-to-Soviez migration (`--migration-*` only; legacy merge-in interface not supported)
 
 ## Connected vs offline
 
-- **Connected:** SaaS for activation, entitlements, Registry pulls, migration authorization.
-- **Offline:** signed offline packages/bundles; ERP continues without SaaS.
+- **Connected:** SaaS for activation, entitlements, release metadata, migration authorization.
+- **Offline:** signed offline bundles; ERP, backup, restore, and diagnostics continue without SaaS.
 
 ## Production vs Stage
 
 - **Production:** customer live ERP (one License → one Production slot).
-- **Stage:** disposable non-production environments with retention (default 14 days, max 60 from original creation).
+- **Stage:** isolated non-production environments; failing Stage must not take down Production.
 
-## Sovereignty invariants (operator-facing)
+## Sovereignty invariants
 
 ```text
 ERP runtime does not depend on continuous SaaS connectivity.
-Support expiry does not stop ERP.
-Stage entitlement expiry does not stop/delete already-existing Stages.
-LOCAL_ONLY backup = backup available, NOT disaster recovery.
+Technical Support expiry does not stop ERP, backup, or restore.
+Stage entitlement expiry blocks new Stage mutations only.
+No hidden telemetry or periodic phone-home.
 Soviez.sh NEVER installs Webmin or Virtualmin.
-Source purge is never automatic.
 ```
 
 ## Security posture
 
-Soviez is **security-hardened and certified**, not "unhackable". See [SECURITY.md](SECURITY.md).
+Soviez is **security-hardened**, not "unhackable". See [SECURITY.md](SECURITY.md) and [../security/SOVIEZ_PRODUCTION_SECURITY_BLUEPRINT.md](../security/SOVIEZ_PRODUCTION_SECURITY_BLUEPRINT.md).
 
-## Release note
+## Feature availability
 
-Engineering certification is complete. **Public release / publish / production rollout remain NOT AUTHORIZED** until separate owner authorization.
+See [IMPLEMENTATION_STATUS_MATRIX.md](../IMPLEMENTATION_STATUS_MATRIX.md) before claiming features like `--doctor` or `--release-status` are available today.

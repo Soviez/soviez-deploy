@@ -1,6 +1,8 @@
 # Security (Operator)
 
-Soviez is **security-hardened and certified**, not "unhackable".
+Soviez is **security-hardened**, not "unhackable".
+
+**Blueprint:** [../security/SOVIEZ_PRODUCTION_SECURITY_BLUEPRINT.md](../SOVIEZ_PRODUCTION_SECURITY_BLUEPRINT.md)
 
 ## Platform composition (S1–S6)
 
@@ -17,9 +19,11 @@ Soviez is **security-hardened and certified**, not "unhackable".
 
 | Status | Meaning |
 |--------|---------|
-| PASS | No blocking findings |
+| PASS | Operational validation passed |
 | REVIEW | Operator judgment required |
 | FAIL | Must not promote / must remediate |
+
+`--security-status` reports **operational state**, not merely installed packages.
 
 ## Commands
 
@@ -40,10 +44,32 @@ soviez.sh --security-backup-check
 Soviez.sh NEVER installs Webmin or Virtualmin.
 ```
 
-Detection/classification only. See `docs/security/WEBMIN_VIRTUALMIN.md`.
+Detection/audit only. See `docs/security/WEBMIN_VIRTUALMIN.md`.
 
-## Malware stack (honest)
+## Malware protection (ClamAV + YARA)
 
-**Implemented:** native DB scanner, FIM/integrity, targeted YARA, Fail2Ban, firewall/Nginx/SSH hardening, process/miner IOC observation.  
-**Optional/supporting (not claimed installed by default):** auditd, Lynis, AIDE.  
-**Not installed by default:** ClamAV, Wazuh, Falco, osquery, CrowdSec.
+| Layer | Role |
+|-------|------|
+| **ClamAV** | Intended security baseline: daemon, signatures, scheduled scan, filestore protection where supported. Package install alone ≠ operational. |
+| **YARA** | Full complementary scanner (addons, Python, webshells, IOCs) — **not** replaced by ClamAV |
+| **Native scanners** | DB, technical-model, process, network, IOC, filesystem integrity |
+
+**Response policy:** detect → preserve evidence → quarantine → classify. **Never** auto-delete suspicious business files or signing keys.
+
+Do not scan PostgreSQL PGDATA with ClamAV realtime on-access.
+
+**Current implementation:** ClamAV may be installed on-demand via security harden paths; full `--init` baseline integration is approved and converging — see [IMPLEMENTATION_STATUS_MATRIX.md](../IMPLEMENTATION_STATUS_MATRIX.md).
+
+## AppArmor
+
+Must remain **enabled**. Disabling AppArmor is not a supported troubleshooting step.
+
+## PostgreSQL boundary
+
+Odoo runs as least-privilege `soviez_app`. Compromise of an Odoo admin account must **not** automatically grant PostgreSQL superuser, host root, or Docker control.
+
+## Optional third-party tools
+
+auditd, Lynis, AIDE may be used where equivalent native controls exist. AIDE is not mandatory when Soviez native FIM is in place.
+
+Not part of default Soviez baseline: Wazuh, Falco, osquery, CrowdSec.

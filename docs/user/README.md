@@ -1,7 +1,8 @@
 # User / Operator Documentation
 
 **Audience:** server administrators, customers, consultants, DevOps, support.  
-**Product version:** `0.24.5.1-security-s5-corr1`
+**Product contract:** [../SOVIEZ_SH_PRODUCT_CONTRACT.md](../SOVIEZ_SH_PRODUCT_CONTRACT.md)  
+**Platform build:** `0.24.6.3-platform-cli`
 
 Start here if you operate Soviez hosts. You do not need to read source code.
 
@@ -13,7 +14,7 @@ Start here if you operate Soviez hosts. You do not need to read source code.
 | [REQUIREMENTS.md](REQUIREMENTS.md) | Prerequisites |
 | [QUICK_START.md](QUICK_START.md) | Fast path |
 | [INSTALLATION.md](INSTALLATION.md) | Host install |
-| [INITIALIZATION.md](INITIALIZATION.md) | `--init` (Production wizard) |
+| [INITIALIZATION.md](INITIALIZATION.md) | `--init` host preparation |
 | [NEW_PRODUCTION.md](NEW_PRODUCTION.md) | `--new` Production |
 | [CLI_REFERENCE.md](CLI_REFERENCE.md) | Full CLI |
 
@@ -72,4 +73,8 @@ Start here if you operate Soviez hosts. You do not need to read source code.
 
 ## Important CLI note
 
-There is **no** public `--merge-in` command. Migration uses the `--migration-*` family on the modular installer. Host bootstrap `--init` exists on the **dual Production wizard** (`Soviez ERP/soviez.sh` / `soviez-deploy/soviez.sh`), not as a modular `soviez-sh` flag.
+There is **no** public `--merge-in` command. Migration uses `--migration-*` only.
+
+**Customer CLI:** `soviez.sh` on PATH (`/usr/local/bin/soviez.sh`). Do not invoke from repository `dist/` or checkout paths.
+
+**`--init`:** Approved on the public PATH CLI per product contract. **Currently certified** on the dual Production wizard during PATH convergence — see [INITIALIZATION.md](INITIALIZATION.md) and [IMPLEMENTATION_STATUS_MATRIX.md](../IMPLEMENTATION_STATUS_MATRIX.md).
