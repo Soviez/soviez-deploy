@@ -1,0 +1,5 @@
+# ARTIFACT_FREEZE
+artifact_sha256: c76c59e9e11401ca63673445d9e8415df48cb0364a2a8ed4710356355360937f
+artifact_size: 1729489
+built_from_commit: c26c031d857a1007994b71181b493c241c0724bf
+assemble_runs: 1
