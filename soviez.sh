@@ -1,30 +1,26 @@
 #!/usr/bin/env bash
-# Soviez ERP — production onboarding wizard (Ubuntu/Debian)
-#
-# Modes:
-#   ./soviez.sh            | --init    Host environment bootstrap (apt, Docker, Nginx, Certbot, UFW)
-#   ./soviez.sh --new                  Provision isolated multi-tenant instance + DNS/SSL/addons
-#   ./soviez.sh --formsetup            Resume / heal the latest half-configured tenant (idempotent)
-#   ./soviez.sh --formssl [domain]     Diagnose / repair tenant HTTPS (LE or self-signed Cloudflare Full)
-#   ./soviez.sh --list                 List tenants (index, domain, docker status)
-#   ./soviez.sh --backup <tenant> <db> Space-checked DB+filestore archive → /var/soviez/backups
-#   ./soviez.sh --backup-list          Inventory existing backup archives
-#   ./soviez.sh --stage <tenant> [db]  Clone [db|production] -> stage + isolated *_stage addons
-#   ./soviez.sh --dropstage <tenant> <db>  Drop clone + stage runtime + *_stage addons sandbox
-#   ./soviez.sh --liststage            Inventory active staging environments
-#   ./soviez.sh --reset-pass <tenant> <db> <user> <pass>  Odoo-compliant admin password reset
-#   ./soviez.sh --change-domain <tenant>   Repoint tenant DNS/Nginx/HTTPS to a new domain
-#   ./soviez.sh --monitor              Live docker stats for running soviez-* containers
-#   ./soviez.sh --logs <tenant>        Stream docker logs for the tenant web container
-#   ./soviez.sh --update [web]         Pull latest image; recycle all web runners (prod + stage),
-#                                      or only the named container (e.g. soviez-web-1 / soviez-web-1-stage)
-#   ./soviez.sh --formworkers <tenant>   Auto-tune Odoo workers, PG buffers, Docker limits
-#   ./soviez.sh --purge <tenant>         Irreversibly destroy a tenant (containers, volumes, configs)
-#   ./soviez.sh --rebuild <tenant>       Wipe DB + filestore; keep domain, env, and custom addons
-#   ./soviez.sh --recoverdbpass        Rotate internal admin_passwd (stored in env sheet)
-#
-# Logs: /var/log/soviez_setup.log (verbose); terminal shows clean status UI only.
+# Soviez ERP — compatibility wrapper (delegates public lifecycle to modular platform)
 set -euo pipefail
+
+_soviez_delegate_to_modular() {
+  [[ "${SOVIEZ_WIZARD_DELEGATE:-1}" == "1" ]] || return 1
+  local canon="${SOVIEZ_PLATFORM_BIN:-/usr/local/bin/soviez.sh}"
+  local repo_dist
+  repo_dist="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)/dist/soviez.sh"
+  case "${1:-}" in
+    --init|--new|--doctor|--releases|--release-status|--safe-mode|--safe-mode-exit|\
+    --tune|--list|--version|--help|-h|--security-status|--operations) ;;
+    *) return 1 ;;
+  esac
+  if [[ -x "$canon" ]]; then
+    exec "$canon" "$@"
+  fi
+  if [[ -f "$repo_dist" ]]; then
+    exec bash "$repo_dist" "$@"
+  fi
+  return 1
+}
+_soviez_delegate_to_modular "$@" || true
 
 # Installer version — bumped when soviez.sh behavior changes. Used by update_self().
 SOVIEZ_SCRIPT_VERSION="v0.1.9"

@@ -7,11 +7,11 @@
   "released_at": "2026-08-22T12:27:10Z",
   "schema": "soviez.platform_release.v1",
   "sha256": "c76c59e9e11401ca63673445d9e8415df48cb0364a2a8ed4710356355360937f",
-  "signature": "Tl2s1Ij-go300gOUsnMCkv1_gpZJXE9pXuQLHu9rSvE1sRpAw0tPwiSVLm1veZ9YUpkl_927VW_749I2U4WOAQ",
+  "signature": "_mGCfysco6eMnXTaHK7sDgYZ_MXc0-wdSEATjLQuLgr7a560IKdNP7A4bkZvCFqeDA3C39RhkT_6oK_3PBD9AQ",
   "signature_algorithm": "ed25519",
-  "signature_b64url": "Tl2s1Ij-go300gOUsnMCkv1_gpZJXE9pXuQLHu9rSvE1sRpAw0tPwiSVLm1veZ9YUpkl_927VW_749I2U4WOAQ",
+  "signature_b64url": "_mGCfysco6eMnXTaHK7sDgYZ_MXc0-wdSEATjLQuLgr7a560IKdNP7A4bkZvCFqeDA3C39RhkT_6oK_3PBD9AQ",
   "signed": true,
-  "signed_at": "2026-08-22T12:27:10Z",
+  "signed_at": "2026-08-22T12:53:43Z",
   "signer_key_id": "soviez-platform-staging-2026-08",
   "version": "0.24.6.4-platform-cli"
 }
