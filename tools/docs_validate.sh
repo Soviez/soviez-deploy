@@ -2,7 +2,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
-EXP=43de932f2be866f245f2b0b694112c93e811054cd2ccd13fec21df0977897781
+EXP=c76c59e9e11401ca63673445d9e8415df48cb0364a2a8ed4710356355360937f
 sha=$(shasum -a 256 dist/soviez.sh | awk '{print $1}')
 [[ "$sha" == "$EXP" ]] || { echo "FAIL artifact SHA"; exit 1; }
 [[ -f docs/README.md && -f docs/user/CLI_REFERENCE.md && -f docs/user/WEBSOCKET_AND_LONGPOLLING.md ]]

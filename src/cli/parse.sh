@@ -22,6 +22,7 @@ SOVIEZ_CLI_UPDATE_OFFLINE_PACKAGE=""
 SOVIEZ_CLI_CONFIRM="0"
 SOVIEZ_CLI_YES="0"
 SOVIEZ_CLI_DRY_RUN="0"
+SOVIEZ_CLI_EXPLAIN="0"
 SOVIEZ_CLI_ADVANCED="0"
 SOVIEZ_CLI_BACKUP_TARGET=""
 SOVIEZ_CLI_BACKUP_DESTINATION=""
@@ -37,10 +38,16 @@ SOVIEZ_CLI_TARGET=""
 
 soviez_cli_usage() {
   cat <<EOF
-Usage: soviez.sh --new [options]
+Usage: soviez.sh --init
+       soviez.sh --doctor
+       soviez.sh --releases
+       soviez.sh --release-status <environment-id>
+       soviez.sh --safe-mode <production-id>
+       soviez.sh --safe-mode-exit <production-id>
+       soviez.sh --new [options]
        soviez.sh --version
        soviez.sh --list
-       soviez.sh --tune [--dry-run]
+       soviez.sh --tune [--dry-run] [--explain]
        soviez.sh --platform-install
        soviez.sh --reattach <operation-id>
        soviez.sh --update <production-environment-id> [--release ID] [--offline-package PATH] [--confirm]
@@ -302,6 +309,36 @@ soviez_cli_parse() {
   SOVIEZ_CLI_STAGE_TARGET=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
+      --init)
+        SOVIEZ_CLI_COMMAND="init"
+        shift
+        ;;
+      --doctor)
+        SOVIEZ_CLI_COMMAND="doctor"
+        shift
+        ;;
+      --releases)
+        SOVIEZ_CLI_COMMAND="releases"
+        shift
+        ;;
+      --release-status)
+        SOVIEZ_CLI_COMMAND="release-status"
+        shift
+        SOVIEZ_CLI_TARGET="${1:-}"
+        [[ -n "$SOVIEZ_CLI_TARGET" ]] && shift || true
+        ;;
+      --safe-mode-exit)
+        SOVIEZ_CLI_COMMAND="safe-mode-exit"
+        shift
+        SOVIEZ_CLI_TARGET="${1:-}"
+        [[ -n "$SOVIEZ_CLI_TARGET" ]] && shift || true
+        ;;
+      --safe-mode)
+        SOVIEZ_CLI_COMMAND="safe-mode"
+        shift
+        SOVIEZ_CLI_TARGET="${1:-}"
+        [[ -n "$SOVIEZ_CLI_TARGET" ]] && shift || true
+        ;;
       --new)
         SOVIEZ_CLI_COMMAND="new"
         shift
@@ -440,6 +477,13 @@ soviez_cli_parse() {
       --tune)
         SOVIEZ_CLI_COMMAND="tune"
         shift
+        while [[ $# -gt 0 ]]; do
+          case "$1" in
+            --dry-run) SOVIEZ_CLI_DRY_RUN="1"; shift ;;
+            --explain) SOVIEZ_CLI_EXPLAIN="1"; shift ;;
+            *) break ;;
+          esac
+        done
         ;;
       --platform-install)
         SOVIEZ_CLI_COMMAND="platform-install"

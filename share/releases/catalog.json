@@ -1,0 +1,23 @@
+{
+  "schema": "soviez.release_catalog.v1",
+  "repository": "soviez/soviez-erp",
+  "releases": [
+    {
+      "release_name": "cert-0.24.6.4",
+      "release_id": "cert-0.24.6.4",
+      "channel": "certification",
+      "status": "Candidate",
+      "image_digest": "sha256:ddee91810f0d22b7b78334e3404b8dc82f20200cce10a9f9656d9f2ff1111fab",
+      "image_ref": "soviez/soviez-erp@sha256:ddee91810f0d22b7b78334e3404b8dc82f20200cce10a9f9656d9f2ff1111fab",
+      "erp_major": "18",
+      "architecture": "amd64",
+      "signed": true,
+      "notes": "Public Docker Hub certification candidate; not stable channel."
+    }
+  ],
+  "channels": {
+    "stable": null,
+    "certification": "cert-0.24.6.4",
+    "preview": null
+  }
+}

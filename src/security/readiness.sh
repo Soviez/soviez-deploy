@@ -72,8 +72,57 @@ soviez_cmd_security_scan() {
 }
 
 soviez_cmd_security_status() {
-  echo "STRICT_SIG=${SOVIEZ_UPDATE_STRICT_SIG:-1}"
-  echo "PHASE24_CERTIFICATION=${SOVIEZ_PHASE24_CERTIFICATION:-0}"
-  echo "test_bypass_allowed=$(soviez_security_test_bypass_allowed && echo yes || echo no)"
-  echo "disposable_env=$(soviez_security_is_disposable_env && echo yes || echo no)"
+  echo "=== Soviez security status (operational) ==="
+  local rc=0
+  _line() {
+    local name="$1" st="$2" det="${3:-}"
+    printf '%-24s %s' "$name" "$st"
+    [[ -n "$det" ]] && printf ' (%s)' "$det"
+    printf '\n'
+    [[ "$st" == "FAIL" || "$st" == "NEEDS_ACTION" ]] && rc=1
+  }
+
+  if declare -F soviez_fw_detect_backend >/dev/null 2>&1; then
+    local fb
+    fb="$(soviez_fw_detect_backend 2>/dev/null || echo UNKNOWN)"
+    if [[ "$fb" == "UNKNOWN" ]]; then _line "Firewall" "FAIL"; else _line "Firewall" "PASS" "$fb"; fi
+  fi
+
+  if command -v aa-status >/dev/null 2>&1; then
+    if aa-status --enabled 2>/dev/null | grep -qi 'not enabled'; then _line "AppArmor" "FAIL"; else _line "AppArmor" "PASS"; fi
+  else
+    _line "AppArmor" "SKIP"
+  fi
+
+  if command -v fail2ban-client >/dev/null 2>&1; then
+    fail2ban-client ping >/dev/null 2>&1 && _line "Fail2Ban" "PASS" || _line "Fail2Ban" "FAIL"
+  else
+    _line "Fail2Ban" "SKIP"
+  fi
+
+  if declare -F soviez_clamav_operational_status >/dev/null 2>&1; then
+    _line "ClamAV" "$(soviez_clamav_operational_status)"
+  elif declare -F soviez_clamav_daemon_status >/dev/null 2>&1; then
+    local ds
+    ds="$(soviez_clamav_daemon_status)"
+    [[ "$ds" == active ]] && _line "ClamAV daemon" "PASS" || _line "ClamAV daemon" "FAIL" "$ds"
+  fi
+
+  if [[ -f /var/lib/clamav/daily.cld || -f /var/lib/clamav/daily.cvd ]]; then
+    _line "ClamAV signatures" "PASS"
+  else
+    _line "ClamAV signatures" "FAIL"
+  fi
+
+  if command -v yara >/dev/null 2>&1 || [[ -d "${SOVIEZ_SH_ROOT:-}/share/security/detection/yara" ]]; then
+    _line "YARA" "PASS"
+  else
+    _line "YARA" "SKIP"
+  fi
+
+  _line "Odoo public ports" "INFO" "validate per environment via --security-check"
+  _line "PostgreSQL public" "INFO" "must be private Docker network"
+  _line "TLS" "INFO" "validate per environment via --ssl-status"
+
+  return "$rc"
 }

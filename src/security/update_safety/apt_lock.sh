@@ -20,7 +20,7 @@ soviez_pkg_lock_files() {
 
 # Report lock owners without mutating anything. stdout: "pid|cmd" lines or empty.
 soviez_pkg_lock_owners() {
-  local f pids pid cmd
+  local f pids pid owner_cmd
   local seen=""
   for f in $(soviez_pkg_lock_files); do
     [[ -e "$f" ]] || continue
@@ -36,13 +36,11 @@ soviez_pkg_lock_owners() {
         *" $pid "*) continue ;;
       esac
       seen="${seen} ${pid}"
-      cmd="$(ps -p "$pid" -o args= 2>/dev/null | head -c 200 || true)"
-      # Redact common secret-looking tokens in cmdline.
-      cmd="$(printf '%s' "$cmd" | sed -E 's/(password|passwd|token|secret|key)=[^[:space:]]+/\1=***/Ig')"
-      printf '%s|%s\n' "$pid" "${cmd:-unknown}"
+      owner_cmd="$(ps -p "$pid" -o args= 2>/dev/null | head -c 200 || true)"
+      owner_cmd="$(printf '%s' "$owner_cmd" | sed -E 's/(password|passwd|token|secret|key)=[^[:space:]]+/\1=***/Ig')"
+      printf '%s|%s\n' "$pid" "${owner_cmd:-unknown}"
     done
   done
-  # Also surface known package-manager PIDs even if fuser missed lock file.
   local name
   for name in apt apt-get dpkg; do
     while IFS= read -r pid; do
@@ -51,9 +49,9 @@ soviez_pkg_lock_owners() {
         *" $pid "*) continue ;;
       esac
       seen="${seen} ${pid}"
-      cmd="$(ps -p "$pid" -o args= 2>/dev/null | head -c 200 || echo "$name")"
-      cmd="$(printf '%s' "$cmd" | sed -E 's/(password|passwd|token|secret|key)=[^[:space:]]+/\1=***/Ig')"
-      printf '%s|%s\n' "$pid" "$cmd"
+      owner_cmd="$(ps -p "$pid" -o args= 2>/dev/null | head -c 200 || echo "$name")"
+      owner_cmd="$(printf '%s' "$owner_cmd" | sed -E 's/(password|passwd|token|secret|key)=[^[:space:]]+/\1=***/Ig')"
+      printf '%s|%s\n' "$pid" "$owner_cmd"
     done < <(pgrep -x "$name" 2>/dev/null || true)
   done
   while IFS= read -r pid; do
@@ -61,9 +59,12 @@ soviez_pkg_lock_owners() {
     case " $seen " in
       *" $pid "*) continue ;;
     esac
+    owner_cmd="$(ps -p "$pid" -o args= 2>/dev/null | head -c 200 || echo unattended-upgrade)"
+    case "$owner_cmd" in
+      *unattended-upgrade-shutdown*) continue ;;
+    esac
     seen="${seen} ${pid}"
-    cmd="$(ps -p "$pid" -o args= 2>/dev/null | head -c 200 || echo unattended-upgrade)"
-    printf '%s|%s\n' "$pid" "$cmd"
+    printf '%s|%s\n' "$pid" "$owner_cmd"
   done < <(pgrep -f 'unattended-upgrade' 2>/dev/null || true)
 }
 

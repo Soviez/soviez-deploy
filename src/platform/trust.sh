@@ -110,17 +110,18 @@ PY
 
 soviez_platform_version_cmp() {
   # Echo: -1 if a<b, 0 if equal, 1 if a>b (sort -V semantics on numeric-ish versions).
+  # Use printf '%s' so GNU printf never treats "-1" as an option.
   local a="${1#v}" b="${2#v}"
   if [[ "$a" == "$b" ]]; then
-    printf '0\n'
+    printf '%s\n' '0'
     return 0
   fi
   local newest
   newest="$(printf '%s\n%s\n' "$a" "$b" | sort -V | tail -n1)"
   if [[ "$newest" == "$a" ]]; then
-    printf '1\n'
+    printf '%s\n' '1'
   else
-    printf '-1\n'
+    printf '%s\n' '-1'
   fi
 }
 

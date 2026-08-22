@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # GENERATED FILE — do not edit. Built from soviez-sh/src by build/assemble.sh
-# version: 0.24.6.2-platform-cli
+# version: 0.24.6.4-platform-cli
 set -euo pipefail
 
 # --- begin version.sh ---
@@ -1091,10 +1091,59 @@ soviez_cmd_security_scan() {
 }
 
 soviez_cmd_security_status() {
-  echo "STRICT_SIG=${SOVIEZ_UPDATE_STRICT_SIG:-1}"
-  echo "PHASE24_CERTIFICATION=${SOVIEZ_PHASE24_CERTIFICATION:-0}"
-  echo "test_bypass_allowed=$(soviez_security_test_bypass_allowed && echo yes || echo no)"
-  echo "disposable_env=$(soviez_security_is_disposable_env && echo yes || echo no)"
+  echo "=== Soviez security status (operational) ==="
+  local rc=0
+  _line() {
+    local name="$1" st="$2" det="${3:-}"
+    printf '%-24s %s' "$name" "$st"
+    [[ -n "$det" ]] && printf ' (%s)' "$det"
+    printf '\n'
+    [[ "$st" == "FAIL" || "$st" == "NEEDS_ACTION" ]] && rc=1
+  }
+
+  if declare -F soviez_fw_detect_backend >/dev/null 2>&1; then
+    local fb
+    fb="$(soviez_fw_detect_backend 2>/dev/null || echo UNKNOWN)"
+    if [[ "$fb" == "UNKNOWN" ]]; then _line "Firewall" "FAIL"; else _line "Firewall" "PASS" "$fb"; fi
+  fi
+
+  if command -v aa-status >/dev/null 2>&1; then
+    if aa-status --enabled 2>/dev/null | grep -qi 'not enabled'; then _line "AppArmor" "FAIL"; else _line "AppArmor" "PASS"; fi
+  else
+    _line "AppArmor" "SKIP"
+  fi
+
+  if command -v fail2ban-client >/dev/null 2>&1; then
+    fail2ban-client ping >/dev/null 2>&1 && _line "Fail2Ban" "PASS" || _line "Fail2Ban" "FAIL"
+  else
+    _line "Fail2Ban" "SKIP"
+  fi
+
+  if declare -F soviez_clamav_operational_status >/dev/null 2>&1; then
+    _line "ClamAV" "$(soviez_clamav_operational_status)"
+  elif declare -F soviez_clamav_daemon_status >/dev/null 2>&1; then
+    local ds
+    ds="$(soviez_clamav_daemon_status)"
+    [[ "$ds" == active ]] && _line "ClamAV daemon" "PASS" || _line "ClamAV daemon" "FAIL" "$ds"
+  fi
+
+  if [[ -f /var/lib/clamav/daily.cld || -f /var/lib/clamav/daily.cvd ]]; then
+    _line "ClamAV signatures" "PASS"
+  else
+    _line "ClamAV signatures" "FAIL"
+  fi
+
+  if command -v yara >/dev/null 2>&1 || [[ -d "${SOVIEZ_SH_ROOT:-}/share/security/detection/yara" ]]; then
+    _line "YARA" "PASS"
+  else
+    _line "YARA" "SKIP"
+  fi
+
+  _line "Odoo public ports" "INFO" "validate per environment via --security-check"
+  _line "PostgreSQL public" "INFO" "must be private Docker network"
+  _line "TLS" "INFO" "validate per environment via --ssl-status"
+
+  return "$rc"
 }
 
 # --- end security/readiness.sh ---
@@ -4971,8 +5020,69 @@ soviez_clamav_on_access_scope() {
 filestore
 uploads
 /opt/soviez
-/usr/local
+/var/soviez
 EOF
+}
+
+soviez_clamav_operational_status() {
+  if ! soviez_clamav_available; then
+    printf 'FAIL\n'
+    return 0
+  fi
+  local ds sig
+  ds="$(soviez_clamav_daemon_status)"
+  [[ "$ds" == active ]] || { printf 'FAIL\n'; return 0; }
+  if [[ -f /var/lib/clamav/daily.cld || -f /var/lib/clamav/daily.cvd ]]; then
+    sig="PASS"
+  else
+    sig="FAIL"
+  fi
+  printf '%s\n' "$sig"
+}
+
+soviez_clamav_safe_test() {
+  local tmp eicar
+  tmp="$(mktemp -d)"
+  eicar='X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*'
+  printf '%s' "$eicar" >"${tmp}/eicar.com"
+  local bin=clamdscan
+  command -v clamdscan >/dev/null 2>&1 || bin=clamscan
+  if "$bin" "${tmp}/eicar.com" >/dev/null 2>&1; then
+    rm -rf "$tmp"
+    return 1
+  fi
+  rm -rf "$tmp"
+  return 0
+}
+
+soviez_clamav_init_baseline() {
+  soviez_clamav_ensure_packages || return 1
+  systemctl enable --now clamav-freshclam clamav-daemon 2>/dev/null || true
+  systemctl restart clamav-freshclam 2>/dev/null || true
+  local i
+  for i in $(seq 1 30); do
+    [[ -f /var/lib/clamav/daily.cld || -f /var/lib/clamav/daily.cvd ]] && break
+    sleep 2
+  done
+  [[ -f /var/lib/clamav/daily.cld || -f /var/lib/clamav/daily.cvd ]] || {
+    echo "[error] ClamAV signatures not present after freshclam wait" >&2
+    return 1
+  }
+  soviez_clamav_safe_test || {
+    echo "[error] ClamAV safe detection test failed" >&2
+    return 1
+  }
+  # Scheduled scan (daily filestore — not PGDATA)
+  cat >/etc/cron.daily/soviez-clamav-filestore <<'EOF'
+#!/bin/sh
+for d in /var/soviez/volumes /soviez; do
+  [ -d "$d" ] || continue
+  clamdscan --multiscan --no-summary "$d" >/dev/null 2>&1 || true
+done
+EOF
+  chmod 755 /etc/cron.daily/soviez-clamav-filestore 2>/dev/null || true
+  echo "[ok] ClamAV baseline operational"
+  return 0
 }
 
 # --- end security/detection/clamav.sh ---
@@ -7230,7 +7340,7 @@ soviez_pkg_lock_files() {
 
 # Report lock owners without mutating anything. stdout: "pid|cmd" lines or empty.
 soviez_pkg_lock_owners() {
-  local f pids pid cmd
+  local f pids pid owner_cmd
   local seen=""
   for f in $(soviez_pkg_lock_files); do
     [[ -e "$f" ]] || continue
@@ -7246,13 +7356,11 @@ soviez_pkg_lock_owners() {
         *" $pid "*) continue ;;
       esac
       seen="${seen} ${pid}"
-      cmd="$(ps -p "$pid" -o args= 2>/dev/null | head -c 200 || true)"
-      # Redact common secret-looking tokens in cmdline.
-      cmd="$(printf '%s' "$cmd" | sed -E 's/(password|passwd|token|secret|key)=[^[:space:]]+/\1=***/Ig')"
-      printf '%s|%s\n' "$pid" "${cmd:-unknown}"
+      owner_cmd="$(ps -p "$pid" -o args= 2>/dev/null | head -c 200 || true)"
+      owner_cmd="$(printf '%s' "$owner_cmd" | sed -E 's/(password|passwd|token|secret|key)=[^[:space:]]+/\1=***/Ig')"
+      printf '%s|%s\n' "$pid" "${owner_cmd:-unknown}"
     done
   done
-  # Also surface known package-manager PIDs even if fuser missed lock file.
   local name
   for name in apt apt-get dpkg; do
     while IFS= read -r pid; do
@@ -7261,9 +7369,9 @@ soviez_pkg_lock_owners() {
         *" $pid "*) continue ;;
       esac
       seen="${seen} ${pid}"
-      cmd="$(ps -p "$pid" -o args= 2>/dev/null | head -c 200 || echo "$name")"
-      cmd="$(printf '%s' "$cmd" | sed -E 's/(password|passwd|token|secret|key)=[^[:space:]]+/\1=***/Ig')"
-      printf '%s|%s\n' "$pid" "$cmd"
+      owner_cmd="$(ps -p "$pid" -o args= 2>/dev/null | head -c 200 || echo "$name")"
+      owner_cmd="$(printf '%s' "$owner_cmd" | sed -E 's/(password|passwd|token|secret|key)=[^[:space:]]+/\1=***/Ig')"
+      printf '%s|%s\n' "$pid" "$owner_cmd"
     done < <(pgrep -x "$name" 2>/dev/null || true)
   done
   while IFS= read -r pid; do
@@ -7271,9 +7379,12 @@ soviez_pkg_lock_owners() {
     case " $seen " in
       *" $pid "*) continue ;;
     esac
+    owner_cmd="$(ps -p "$pid" -o args= 2>/dev/null | head -c 200 || echo unattended-upgrade)"
+    case "$owner_cmd" in
+      *unattended-upgrade-shutdown*) continue ;;
+    esac
     seen="${seen} ${pid}"
-    cmd="$(ps -p "$pid" -o args= 2>/dev/null | head -c 200 || echo unattended-upgrade)"
-    printf '%s|%s\n' "$pid" "$cmd"
+    printf '%s|%s\n' "$pid" "$owner_cmd"
   done < <(pgrep -f 'unattended-upgrade' 2>/dev/null || true)
 }
 
@@ -25697,17 +25808,18 @@ PY
 
 soviez_platform_version_cmp() {
   # Echo: -1 if a<b, 0 if equal, 1 if a>b (sort -V semantics on numeric-ish versions).
+  # Use printf '%s' so GNU printf never treats "-1" as an option.
   local a="${1#v}" b="${2#v}"
   if [[ "$a" == "$b" ]]; then
-    printf '0\n'
+    printf '%s\n' '0'
     return 0
   fi
   local newest
   newest="$(printf '%s\n%s\n' "$a" "$b" | sort -V | tail -n1)"
   if [[ "$newest" == "$a" ]]; then
-    printf '1\n'
+    printf '%s\n' '1'
   else
-    printf '-1\n'
+    printf '%s\n' '-1'
   fi
 }
 
@@ -25913,7 +26025,7 @@ soviez_platform_install_self_payload() {
 
 soviez_platform_cmd_is_mutating() {
   case "${1:-}" in
-    new|stage|stage-reattach|update|restore|restore-as-stage|security-harden|\
+    init|new|stage|stage-reattach|update|restore|restore-as-stage|security-harden|\
     migration-bootstrap-destination|migration-pair|migration-transfer-start|\
     migration-activate-destination|migration-cutover-start|migration-cutover-rollback|\
     tune|platform-install|ssl-renew|ssl-repair|backup|backup-import|backup-delete|\
@@ -25928,7 +26040,7 @@ soviez_platform_cmd_is_mutating() {
 
 soviez_platform_cmd_is_readonly() {
   case "${1:-}" in
-    version|list|stage-list|stage-status|operations-list|operation-status|operation-logs|\
+    version|list|doctor|releases|release-status|stage-list|stage-status|operations-list|operation-status|operation-logs|\
     security-status|security-report|ssl-status|backup-list|backup-show|backup-verify|\
     backup-retention-status|backup-destination-list|help|"")
       return 0
@@ -25944,10 +26056,15 @@ soviez_platform_manifest_url() {
     printf '%s\n' "$SOVIEZ_PLATFORM_MANIFEST_URL"
     return 0
   fi
-  local channel
+  local channel branch
   channel="$(soviez_platform_channel)"
-  # Default customer channel remains stable on main; staging/certification use explicit channel.
-  printf 'https://raw.githubusercontent.com/Soviez/soviez-deploy/main/platform-release/%s/manifest.json\n' "$channel"
+  branch="main"
+  case "$channel" in
+    staging|certification)
+      branch="${SOVIEZ_PLATFORM_RELEASE_BRANCH:-cert/0.24.6.2-platform-cli}"
+      ;;
+  esac
+  printf 'https://raw.githubusercontent.com/Soviez/soviez-deploy/%s/platform-release/%s/manifest.json\n' "$branch" "$channel"
 }
 
 soviez_platform_lock_acquire() {
@@ -26369,6 +26486,263 @@ PY
 
 # --- end sizing/engine.sh ---
 
+# --- begin host/bootstrap.sh ---
+# shellcheck shell=bash
+# Canonical host bootstrap for `soviez.sh --init`.
+
+soviez_host_require_root() {
+  if [[ "${SOVIEZ_TEST_MODE:-0}" == "1" ]]; then
+    return 0
+  fi
+  if [[ "$(id -u)" -ne 0 ]]; then
+    echo "[error] --init requires root" >&2
+    return 1
+  fi
+}
+
+soviez_host_assert_ubuntu_lts() {
+  if [[ "${SOVIEZ_TEST_MODE:-0}" == "1" ]]; then
+    return 0
+  fi
+  [[ -r /etc/os-release ]] || {
+    echo "[error] cannot read /etc/os-release" >&2
+    return 1
+  }
+  # shellcheck disable=SC1091
+  source /etc/os-release
+  [[ "${ID:-}" == "ubuntu" ]] || {
+    echo "[error] supported OS: Ubuntu LTS only (found ${ID:-unknown})" >&2
+    return 1
+  }
+  case "${VERSION_ID:-}" in
+    22.04|24.04) return 0 ;;
+    *)
+      echo "[error] supported Ubuntu LTS: 22.04 or 24.04 (found ${VERSION_ID:-unknown})" >&2
+      return 1
+      ;;
+  esac
+}
+
+soviez_host_apt_update() {
+  export DEBIAN_FRONTEND=noninteractive
+  if declare -F soviez_security_apt_wait_locks >/dev/null 2>&1; then
+    soviez_security_apt_wait_locks || return 1
+  elif declare -F soviez_s5_apt_wait_for_lock >/dev/null 2>&1; then
+    soviez_s5_apt_wait_for_lock || return 1
+  fi
+  apt-get update -y
+}
+
+soviez_host_apt_install() {
+  export DEBIAN_FRONTEND=noninteractive
+  if declare -F soviez_security_apt_wait_locks >/dev/null 2>&1; then
+    soviez_security_apt_wait_locks || return 1
+  fi
+  apt-get install -y "$@"
+}
+
+soviez_host_install_docker() {
+  if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+    echo "[ok] Docker already installed"
+    return 0
+  fi
+  soviez_host_apt_install ca-certificates curl gnupg lsb-release
+  install -m 0755 -d /etc/apt/keyrings
+  if [[ ! -f /etc/apt/keyrings/docker.gpg ]]; then
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+    chmod a+r /etc/apt/keyrings/docker.gpg
+  fi
+  echo \
+    "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+    $(. /etc/os-release && echo "${VERSION_CODENAME}") stable" \
+    >/etc/apt/sources.list.d/docker.list
+  soviez_host_apt_update
+  soviez_host_apt_install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+  systemctl enable --now docker
+}
+
+soviez_host_install_nginx_stack() {
+  if ! command -v nginx >/dev/null 2>&1; then
+    soviez_host_apt_install nginx
+  fi
+  systemctl enable --now nginx
+  if ! command -v certbot >/dev/null 2>&1; then
+    soviez_host_apt_install certbot python3-certbot-nginx
+  fi
+}
+
+soviez_host_install_ufw() {
+  if ! command -v ufw >/dev/null 2>&1; then
+    soviez_host_apt_install ufw
+  fi
+}
+
+soviez_host_install_fail2ban() {
+  if ! command -v fail2ban-client >/dev/null 2>&1; then
+    soviez_host_apt_install fail2ban
+  fi
+  systemctl enable --now fail2ban 2>/dev/null || true
+}
+
+soviez_host_unattended_upgrades() {
+  soviez_host_apt_install unattended-upgrades apt-listchanges || true
+  if [[ -f /etc/apt/apt.conf.d/20auto-upgrades ]]; then
+    :
+  else
+    cat >/etc/apt/apt.conf.d/20auto-upgrades <<'EOF'
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Unattended-Upgrade "1";
+APT::Periodic::AutocleanInterval "7";
+EOF
+  fi
+  if [[ -f /etc/apt/apt.conf.d/50unattended-upgrades ]]; then
+    grep -q 'origin=Ubuntu,archive=.*-security' /etc/apt/apt.conf.d/50unattended-upgrades 2>/dev/null || true
+  fi
+}
+
+soviez_host_apparmor_validate() {
+  if [[ "${SOVIEZ_TEST_MODE:-0}" == "1" ]]; then
+    echo "[skip] AppArmor validation (test mode)"
+    return 0
+  fi
+  if command -v aa-status >/dev/null 2>&1; then
+    if aa-status --enabled 2>/dev/null | grep -qi 'not enabled'; then
+      echo "[error] AppArmor must remain enabled" >&2
+      return 1
+    fi
+    echo "[ok] AppArmor enabled"
+    return 0
+  fi
+  echo "[warn] aa-status unavailable"
+  return 0
+}
+
+soviez_host_ensure_layout() {
+  mkdir -p /var/soviez/tenant /var/soviez/backups /var/soviez/tuning /var/soviez/security
+  mkdir -p /opt/soviez/platform/current /opt/soviez/platform/previous /opt/soviez/platform/candidates
+}
+
+soviez_host_never_webmin() {
+  if declare -F soviez_mgmt_classify_webmin >/dev/null 2>&1; then
+    local wc
+    wc="$(soviez_mgmt_classify_webmin)"
+    case "$wc" in
+      FAIL|WARNING)
+        echo "[warn] Webmin/Virtualmin detected — Soviez never installs these; audit only"
+        ;;
+    esac
+  fi
+  if command -v ss >/dev/null 2>&1 && ss -lnt 2>/dev/null | grep -q ':10000'; then
+    echo "[warn] port 10000 listening — review Webmin exposure"
+  fi
+}
+
+soviez_host_bootstrap_run() {
+  soviez_host_require_root || return 1
+  soviez_host_assert_ubuntu_lts || return 1
+  export DEBIAN_FRONTEND=noninteractive
+
+  echo "=== Soviez host initialization ==="
+  soviez_host_ensure_layout
+  soviez_host_apt_update || return 1
+  soviez_host_apt_install curl ca-certificates gnupg lsb-release python3 jq || return 1
+  soviez_host_install_docker || return 1
+  soviez_host_install_nginx_stack || return 1
+  soviez_host_install_ufw || return 1
+  soviez_host_install_fail2ban || return 1
+  soviez_host_unattended_upgrades || true
+
+  export SOVIEZ_FW_APPLY=1
+  export SOVIEZ_CLAMAV_AUTO_INSTALL=1
+  if declare -F soviez_sec_s2_harden >/dev/null 2>&1; then
+    soviez_sec_s2_harden || return 1
+  fi
+
+  if declare -F soviez_clamav_init_baseline >/dev/null 2>&1; then
+    soviez_clamav_init_baseline || return 1
+  fi
+
+  if declare -F soviez_host_record_baseline >/dev/null 2>&1; then
+    soviez_host_record_baseline "/var/soviez/security/host-baseline"
+  fi
+
+  soviez_host_apparmor_validate || return 1
+  soviez_host_never_webmin
+
+  if declare -F soviez_platform_install_self_payload >/dev/null 2>&1 \
+    && [[ -f "${SOVIEZ_PLATFORM_INSTALL_SRC:-${0:-}}" ]]; then
+    soviez_platform_install_self_payload 2>/dev/null || true
+  fi
+
+  echo "[ok] host initialization complete"
+  return 0
+}
+
+# --- end host/bootstrap.sh ---
+
+# --- begin release/catalog.sh ---
+# shellcheck shell=bash
+# Named release catalog (trusted metadata; not Docker tags).
+
+soviez_release_catalog_path() {
+  local root="${SOVIEZ_SH_ROOT:-}"
+  local candidates=(
+    "${root}/share/releases/catalog.json"
+    "/opt/soviez/platform/current/share/releases/catalog.json"
+    "$(cd "$(dirname "${BASH_SOURCE[0]:-}")/../../share/releases" 2>/dev/null && pwd)/catalog.json"
+  )
+  local c
+  for c in "${candidates[@]}"; do
+    [[ -f "$c" ]] && { printf '%s\n' "$c"; return 0; }
+  done
+  return 1
+}
+
+soviez_release_catalog_load() {
+  local path
+  path="$(soviez_release_catalog_path 2>/dev/null || true)"
+  [[ -n "$path" && -f "$path" ]] || return 1
+  cat "$path"
+}
+
+soviez_release_immutability_assert() {
+  local name="$1" digest="$2" store="${SOVIEZ_RELEASE_LEDGER:-/var/soviez/releases/ledger.json}"
+  mkdir -p "$(dirname "$store")"
+  python3 - "$store" "$name" "$digest" <<'PY'
+import json, os, sys
+store, name, digest = sys.argv[1:4]
+ledger = {}
+if os.path.isfile(store):
+    ledger = json.load(open(store, encoding="utf-8"))
+prev = ledger.get(name)
+if prev and prev != digest:
+    print(f"[error] release immutability violation: {name} was {prev}, attempted {digest}", file=sys.stderr)
+    sys.exit(1)
+ledger[name] = digest
+json.dump(ledger, open(store, "w"), indent=2)
+PY
+}
+
+soviez_release_resolve_by_name() {
+  local name="$1"
+  local catalog path
+  path="$(soviez_release_catalog_path 2>/dev/null || true)"
+  [[ -n "$path" ]] || return 1
+  python3 - "$path" "$name" <<'PY'
+import json, sys
+cat = json.load(open(sys.argv[1], encoding="utf-8"))
+name = sys.argv[2]
+for r in cat.get("releases", []):
+    if r.get("release_name") == name or r.get("release_id") == name:
+        print(json.dumps(r))
+        break
+else:
+    sys.exit(1)
+PY
+}
+
+# --- end release/catalog.sh ---
+
 # --- begin cli/parse.sh ---
 # shellcheck shell=bash
 
@@ -26394,6 +26768,7 @@ SOVIEZ_CLI_UPDATE_OFFLINE_PACKAGE=""
 SOVIEZ_CLI_CONFIRM="0"
 SOVIEZ_CLI_YES="0"
 SOVIEZ_CLI_DRY_RUN="0"
+SOVIEZ_CLI_EXPLAIN="0"
 SOVIEZ_CLI_ADVANCED="0"
 SOVIEZ_CLI_BACKUP_TARGET=""
 SOVIEZ_CLI_BACKUP_DESTINATION=""
@@ -26409,10 +26784,16 @@ SOVIEZ_CLI_TARGET=""
 
 soviez_cli_usage() {
   cat <<EOF
-Usage: soviez.sh --new [options]
+Usage: soviez.sh --init
+       soviez.sh --doctor
+       soviez.sh --releases
+       soviez.sh --release-status <environment-id>
+       soviez.sh --safe-mode <production-id>
+       soviez.sh --safe-mode-exit <production-id>
+       soviez.sh --new [options]
        soviez.sh --version
        soviez.sh --list
-       soviez.sh --tune [--dry-run]
+       soviez.sh --tune [--dry-run] [--explain]
        soviez.sh --platform-install
        soviez.sh --reattach <operation-id>
        soviez.sh --update <production-environment-id> [--release ID] [--offline-package PATH] [--confirm]
@@ -26674,6 +27055,36 @@ soviez_cli_parse() {
   SOVIEZ_CLI_STAGE_TARGET=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
+      --init)
+        SOVIEZ_CLI_COMMAND="init"
+        shift
+        ;;
+      --doctor)
+        SOVIEZ_CLI_COMMAND="doctor"
+        shift
+        ;;
+      --releases)
+        SOVIEZ_CLI_COMMAND="releases"
+        shift
+        ;;
+      --release-status)
+        SOVIEZ_CLI_COMMAND="release-status"
+        shift
+        SOVIEZ_CLI_TARGET="${1:-}"
+        [[ -n "$SOVIEZ_CLI_TARGET" ]] && shift || true
+        ;;
+      --safe-mode-exit)
+        SOVIEZ_CLI_COMMAND="safe-mode-exit"
+        shift
+        SOVIEZ_CLI_TARGET="${1:-}"
+        [[ -n "$SOVIEZ_CLI_TARGET" ]] && shift || true
+        ;;
+      --safe-mode)
+        SOVIEZ_CLI_COMMAND="safe-mode"
+        shift
+        SOVIEZ_CLI_TARGET="${1:-}"
+        [[ -n "$SOVIEZ_CLI_TARGET" ]] && shift || true
+        ;;
       --new)
         SOVIEZ_CLI_COMMAND="new"
         shift
@@ -26812,6 +27223,13 @@ soviez_cli_parse() {
       --tune)
         SOVIEZ_CLI_COMMAND="tune"
         shift
+        while [[ $# -gt 0 ]]; do
+          case "$1" in
+            --dry-run) SOVIEZ_CLI_DRY_RUN="1"; shift ;;
+            --explain) SOVIEZ_CLI_EXPLAIN="1"; shift ;;
+            *) break ;;
+          esac
+        done
         ;;
       --platform-install)
         SOVIEZ_CLI_COMMAND="platform-install"
@@ -27978,6 +28396,269 @@ soviez_cmd_security_report() {
 
 # --- end commands/security_platform.sh ---
 
+# --- begin commands/init.sh ---
+# shellcheck shell=bash
+
+soviez_cmd_init_run() {
+  local marker="/var/soviez/.init-complete"
+  if [[ -f "$marker" && "${SOVIEZ_INIT_FORCE:-0}" != "1" ]]; then
+    echo "[info] host already initialized; re-running idempotent checks"
+  fi
+  soviez_host_bootstrap_run || return 1
+  date -u +%Y-%m-%dT%H:%M:%SZ >"$marker"
+  return 0
+}
+
+# --- end commands/init.sh ---
+
+# --- begin commands/doctor.sh ---
+# shellcheck shell=bash
+# Read-only platform health diagnosis.
+
+soviez_cmd_doctor_run() {
+  local rc=0 section=0
+  _doc() {
+    section=$((section + 1))
+    printf '\n## %s\n' "$1"
+  }
+  _chk() {
+    local name="$1" status="$2" detail="${3:-}"
+    printf '%-28s %s' "$name" "$status"
+    [[ -n "$detail" ]] && printf '  (%s)' "$detail"
+    printf '\n'
+    case "$status" in
+      FAIL|NEEDS_ACTION) rc=1 ;;
+    esac
+  }
+
+  echo "=== Soviez.sh Doctor (read-only) ==="
+  echo "platform=$(soviez_version 2>/dev/null || echo unknown)"
+
+  _doc "Host"
+  if [[ -r /etc/os-release ]]; then
+    # shellcheck disable=SC1091
+    source /etc/os-release
+    _chk "OS" "PASS" "${PRETTY_NAME:-unknown}"
+  else
+    _chk "OS" "SKIP"
+  fi
+  if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+    _chk "Docker" "PASS"
+  else
+    _chk "Docker" "FAIL" "daemon unavailable"
+  fi
+
+  _doc "Platform"
+  local payload
+  payload="$(soviez_platform_payload 2>/dev/null || echo missing)"
+  if [[ -f "$payload" ]]; then
+    _chk "Platform payload" "PASS" "$payload"
+  else
+    _chk "Platform payload" "FAIL" "not installed"
+  fi
+
+  _doc "Security controls"
+  if declare -F soviez_fw_detect_backend >/dev/null 2>&1; then
+    local fb
+    fb="$(soviez_fw_detect_backend 2>/dev/null || echo UNKNOWN)"
+    if [[ "$fb" != "UNKNOWN" ]]; then _chk "Firewall backend" "PASS" "$fb"; else _chk "Firewall backend" "FAIL"; fi
+  fi
+  if command -v aa-status >/dev/null 2>&1; then
+    if aa-status --enabled 2>/dev/null | grep -qi 'not enabled'; then
+      _chk "AppArmor" "FAIL" "disabled"
+    else
+      _chk "AppArmor" "PASS"
+    fi
+  else
+    _chk "AppArmor" "SKIP"
+  fi
+  if command -v fail2ban-client >/dev/null 2>&1; then
+    if fail2ban-client ping >/dev/null 2>&1; then _chk "Fail2Ban" "PASS"; else _chk "Fail2Ban" "FAIL"; fi
+  else
+    _chk "Fail2Ban" "SKIP"
+  fi
+  if declare -F soviez_clamav_operational_status >/dev/null 2>&1; then
+    local cs
+    cs="$(soviez_clamav_operational_status)"
+    _chk "ClamAV" "$cs"
+  elif declare -F soviez_clamav_daemon_status >/dev/null 2>&1; then
+    local ds
+    ds="$(soviez_clamav_daemon_status)"
+    [[ "$ds" == active ]] && _chk "ClamAV daemon" "PASS" || _chk "ClamAV daemon" "FAIL" "$ds"
+  fi
+
+  _doc "Resources"
+  if declare -F soviez_sizing_detect_ram_mb >/dev/null 2>&1; then
+    _chk "RAM (MB)" "INFO" "$(soviez_sizing_detect_ram_mb)"
+    _chk "CPU" "INFO" "$(soviez_sizing_detect_cpu)"
+  fi
+
+  _doc "Environments"
+  local tdir="${SOVIEZ_TENANT_DIR:-/var/soviez/tenant}"
+  local n
+  n="$(find "$tdir" -name identity.json 2>/dev/null | wc -l | tr -d ' ')"
+  _chk "Production count" "INFO" "$n"
+
+  echo ""
+  echo "doctor_exit=$rc"
+  return "$rc"
+}
+
+# --- end commands/doctor.sh ---
+
+# --- begin commands/releases.sh ---
+# shellcheck shell=bash
+
+soviez_cmd_releases_run() {
+  soviez_release_catalog_load >/dev/null 2>&1 || {
+    echo "[error] release catalog unavailable" >&2
+    return 1
+  }
+  local path
+  path="$(soviez_release_catalog_path)"
+  printf '%-20s %-16s %-12s\n' "RELEASE" "CHANNEL" "STATUS"
+  python3 - "$path" <<'PY'
+import json, sys
+cat = json.load(open(sys.argv[1], encoding="utf-8"))
+for r in cat.get("releases", []):
+    print(f"{r.get('release_name','?'):<20} {r.get('channel','?'):<16} {r.get('status','?'):<12}")
+PY
+}
+
+# --- end commands/releases.sh ---
+
+# --- begin commands/release_status.sh ---
+# shellcheck shell=bash
+
+soviez_cmd_release_status_run() {
+  local env_id="${SOVIEZ_CLI_TARGET:-${1:-}}"
+  [[ -n "$env_id" ]] || {
+    echo "usage: soviez.sh --release-status <environment-id>" >&2
+    return 1
+  }
+
+  local identity="${SOVIEZ_TENANT_DIR:-/var/soviez/tenant}/${env_id}/identity.json"
+  [[ -f "$identity" ]] || {
+    echo "[error] environment not found: $env_id" >&2
+    return 1
+  }
+
+  echo "=== Release status: $env_id ==="
+  python3 - "$identity" <<'PY'
+import json, sys
+ident = json.load(open(sys.argv[1], encoding="utf-8"))
+fields = [
+    ("Environment", ident.get("tenant_id") or ident.get("production_id") or "?"),
+    ("Installed ERP release", ident.get("release_name") or ident.get("release_id") or "unknown"),
+    ("Installed image digest", ident.get("image_digest") or ident.get("digest") or "unknown"),
+    ("Platform version", ident.get("platform_version") or "unknown"),
+]
+for k, v in fields:
+    print(f"{k}: {v}")
+PY
+
+  local catalog stable
+  catalog="$(soviez_release_catalog_load 2>/dev/null || echo '{}')"
+  stable="$(python3 -c 'import json,sys; c=json.loads(sys.argv[1]); print(c.get("channels",{}).get("stable") or "none")' "$catalog" 2>/dev/null || echo none)"
+  echo "Current stable release: $stable"
+  echo "Technical Support: ${SOVIEZ_SUPPORT_STATE:-unknown}"
+  echo "Product Updates: ${SOVIEZ_PRODUCT_UPDATES_STATE:-unknown}"
+  return 0
+}
+
+# --- end commands/release_status.sh ---
+
+# --- begin commands/safe_mode.sh ---
+# shellcheck shell=bash
+# Safe Mode — capture exact cron/automation state, disable safely, restore on exit.
+
+soviez_safe_mode_state_dir() {
+  local prod="$1"
+  printf '%s\n' "/var/soviez/safe-mode/${prod}"
+}
+
+soviez_cmd_safe_mode_run() {
+  local prod="${SOVIEZ_CLI_TARGET:-${1:-}}"
+  [[ -n "$prod" ]] || {
+    echo "usage: soviez.sh --safe-mode <production-id>" >&2
+    return 1
+  }
+  local state_dir
+  state_dir="$(soviez_safe_mode_state_dir "$prod")"
+  mkdir -p "$state_dir"
+
+  local env_file="${SOVIEZ_TENANT_DIR:-/var/soviez/tenant}/${prod}/.soviez.env"
+  [[ -f "$env_file" ]] || {
+    echo "[error] production env missing: $prod" >&2
+    return 1
+  }
+  # shellcheck disable=SC1090
+  source "$env_file"
+
+  local web="${WEB_CONTAINER:-soviez-web}"
+  local db="${DB_CONTAINER:-soviez-db}"
+  local db_user="${SOVIEZ_PG_APP_USER:-soviez_app}"
+  local db_pass="${SOVIEZ_DB_PASSWORD:-}"
+  local db_name="${SOVIEZ_DB_NAME:-production}"
+
+  if [[ ! -f "${state_dir}/cron_snapshot.sql" ]]; then
+    docker exec -e PGPASSWORD="$db_pass" "$db" psql -U "$db_user" -d "$db_name" -At \
+      -c "COPY (SELECT id, cron_name, active FROM ir_cron ORDER BY id) TO STDOUT WITH CSV HEADER;" \
+      >"${state_dir}/cron_snapshot.csv" 2>/dev/null || {
+      echo "[warn] could not snapshot ir_cron — Safe Mode partial"
+    }
+    docker exec -e PGPASSWORD="$db_pass" "$db" psql -U "$db_user" -d "$db_name" -c \
+      "UPDATE ir_cron SET active=false WHERE active=true;" >/dev/null 2>&1 || true
+    date -u +%Y-%m-%dT%H:%M:%SZ >"${state_dir}/entered_at"
+    echo "[ok] Safe Mode enabled for $prod (cron deactivated from snapshot)"
+  else
+    echo "[ok] Safe Mode already active for $prod"
+  fi
+  return 0
+}
+
+soviez_cmd_safe_mode_exit_run() {
+  local prod="${SOVIEZ_CLI_TARGET:-${1:-}}"
+  [[ -n "$prod" ]] || {
+    echo "usage: soviez.sh --safe-mode-exit <production-id>" >&2
+    return 1
+  }
+  local state_dir
+  state_dir="$(soviez_safe_mode_state_dir "$prod")"
+  [[ -f "${state_dir}/cron_snapshot.csv" ]] || {
+    echo "[error] no Safe Mode snapshot for $prod" >&2
+    return 1
+  }
+
+  local env_file="${SOVIEZ_TENANT_DIR:-/var/soviez/tenant}/${prod}/.soviez.env"
+  # shellcheck disable=SC1090
+  source "$env_file"
+  local db="${DB_CONTAINER:-soviez-db}"
+  local db_user="${SOVIEZ_PG_APP_USER:-soviez_app}"
+  local db_pass="${SOVIEZ_DB_PASSWORD:-}"
+  local db_name="${SOVIEZ_DB_NAME:-production}"
+
+  python3 - "${state_dir}/cron_snapshot.csv" <<'PY' | while IFS=, read -r id name active; do
+import csv, sys
+with open(sys.argv[1], newline="", encoding="utf-8") as f:
+    r = csv.DictReader(f)
+    for row in r:
+        print(row.get("id",""), row.get("active",""))
+PY
+    [[ "$id" == "id" ]] && continue
+    [[ -z "$id" ]] && continue
+    docker exec -e PGPASSWORD="$db_pass" "$db" psql -U "$db_user" -d "$db_name" -c \
+      "UPDATE ir_cron SET active=$( [[ "$active" == "t" || "$active" == "True" || "$active" == "true" ]] && echo true || echo false ) WHERE id=${id};" \
+      >/dev/null 2>&1 || true
+  done
+
+  rm -f "${state_dir}/cron_snapshot.csv" "${state_dir}/entered_at"
+  echo "[ok] Safe Mode exited for $prod (exact cron states restored)"
+  return 0
+}
+
+# --- end commands/safe_mode.sh ---
+
 # --- begin commands/version.sh ---
 # shellcheck shell=bash
 
@@ -28093,6 +28774,7 @@ soviez_cmd_list_run() {
 
 soviez_cmd_tune_run() {
   local dry="${SOVIEZ_CLI_DRY_RUN:-0}"
+  local explain="${SOVIEZ_CLI_EXPLAIN:-0}"
   local prod_n=0 stage_n=0
   if declare -F soviez_stage_inventory_list_ids >/dev/null 2>&1; then
     stage_n="$(soviez_stage_inventory_list_ids 2>/dev/null | grep -c . || true)"
@@ -28109,6 +28791,26 @@ soviez_cmd_tune_run() {
   profile="$(soviez_sizing_calculate "$prod_n" "$stage_n" 0 0)"
   echo "=== Soviez sizing plan ==="
   printf '%s\n' "$profile"
+
+  if [[ "$explain" == "1" ]]; then
+    python3 - "$profile" <<'PY'
+import json, sys
+p = json.loads(sys.argv[1])
+print("=== Tune explain ===")
+print(f"Detected CPU: {p.get('cpu')}")
+print(f"Detected RAM (MB): {p.get('ram_mb')}")
+print(f"Host reserve (MB): {p.get('host_reserve_mb')}")
+print(f"Security reserve (MB): {p.get('security_headroom_mb')}")
+print(f"Stage reserve (MB): {p.get('stage_reserve_mb')}")
+print(f"PostgreSQL budget (MB): {p.get('postgres',{}).get('shared_buffers_mb')}")
+print(f"Odoo workers: {p.get('odoo',{}).get('workers')}")
+print(f"Cron threads: {p.get('odoo',{}).get('max_cron_threads')}")
+print(f"Docker SHM (MB): {p.get('docker',{}).get('shm_size_mb')}")
+if p.get('odoo',{}).get('workers') == 0:
+    print("Reason: workers=0 fallback (host RAM/CPU below multi-worker threshold)")
+PY
+    return 0
+  fi
 
   local state_dir
   if [[ "${SOVIEZ_TEST_MODE:-0}" == "1" ]]; then
@@ -43217,6 +43919,12 @@ soviez_main() {
   fi
 
   case "$SOVIEZ_CLI_COMMAND" in
+    init) soviez_cmd_init_run ;;
+    doctor) soviez_cmd_doctor_run ;;
+    releases) soviez_cmd_releases_run ;;
+    release-status) soviez_cmd_release_status_run ;;
+    safe-mode) soviez_cmd_safe_mode_run ;;
+    safe-mode-exit) soviez_cmd_safe_mode_exit_run ;;
     version) soviez_cmd_version_run ;;
     list) soviez_cmd_list_run ;;
     tune) soviez_cmd_tune_run ;;

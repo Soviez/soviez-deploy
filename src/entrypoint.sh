@@ -32,6 +32,12 @@ soviez_main() {
   fi
 
   case "$SOVIEZ_CLI_COMMAND" in
+    init) soviez_cmd_init_run ;;
+    doctor) soviez_cmd_doctor_run ;;
+    releases) soviez_cmd_releases_run ;;
+    release-status) soviez_cmd_release_status_run ;;
+    safe-mode) soviez_cmd_safe_mode_run ;;
+    safe-mode-exit) soviez_cmd_safe_mode_exit_run ;;
     version) soviez_cmd_version_run ;;
     list) soviez_cmd_list_run ;;
     tune) soviez_cmd_tune_run ;;

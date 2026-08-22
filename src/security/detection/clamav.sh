@@ -73,6 +73,67 @@ soviez_clamav_on_access_scope() {
 filestore
 uploads
 /opt/soviez
-/usr/local
+/var/soviez
 EOF
+}
+
+soviez_clamav_operational_status() {
+  if ! soviez_clamav_available; then
+    printf 'FAIL\n'
+    return 0
+  fi
+  local ds sig
+  ds="$(soviez_clamav_daemon_status)"
+  [[ "$ds" == active ]] || { printf 'FAIL\n'; return 0; }
+  if [[ -f /var/lib/clamav/daily.cld || -f /var/lib/clamav/daily.cvd ]]; then
+    sig="PASS"
+  else
+    sig="FAIL"
+  fi
+  printf '%s\n' "$sig"
+}
+
+soviez_clamav_safe_test() {
+  local tmp eicar
+  tmp="$(mktemp -d)"
+  eicar='X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*'
+  printf '%s' "$eicar" >"${tmp}/eicar.com"
+  local bin=clamdscan
+  command -v clamdscan >/dev/null 2>&1 || bin=clamscan
+  if "$bin" "${tmp}/eicar.com" >/dev/null 2>&1; then
+    rm -rf "$tmp"
+    return 1
+  fi
+  rm -rf "$tmp"
+  return 0
+}
+
+soviez_clamav_init_baseline() {
+  soviez_clamav_ensure_packages || return 1
+  systemctl enable --now clamav-freshclam clamav-daemon 2>/dev/null || true
+  systemctl restart clamav-freshclam 2>/dev/null || true
+  local i
+  for i in $(seq 1 30); do
+    [[ -f /var/lib/clamav/daily.cld || -f /var/lib/clamav/daily.cvd ]] && break
+    sleep 2
+  done
+  [[ -f /var/lib/clamav/daily.cld || -f /var/lib/clamav/daily.cvd ]] || {
+    echo "[error] ClamAV signatures not present after freshclam wait" >&2
+    return 1
+  }
+  soviez_clamav_safe_test || {
+    echo "[error] ClamAV safe detection test failed" >&2
+    return 1
+  }
+  # Scheduled scan (daily filestore — not PGDATA)
+  cat >/etc/cron.daily/soviez-clamav-filestore <<'EOF'
+#!/bin/sh
+for d in /var/soviez/volumes /soviez; do
+  [ -d "$d" ] || continue
+  clamdscan --multiscan --no-summary "$d" >/dev/null 2>&1 || true
+done
+EOF
+  chmod 755 /etc/cron.daily/soviez-clamav-filestore 2>/dev/null || true
+  echo "[ok] ClamAV baseline operational"
+  return 0
 }

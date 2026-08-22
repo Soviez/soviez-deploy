@@ -2,6 +2,7 @@
 
 soviez_cmd_tune_run() {
   local dry="${SOVIEZ_CLI_DRY_RUN:-0}"
+  local explain="${SOVIEZ_CLI_EXPLAIN:-0}"
   local prod_n=0 stage_n=0
   if declare -F soviez_stage_inventory_list_ids >/dev/null 2>&1; then
     stage_n="$(soviez_stage_inventory_list_ids 2>/dev/null | grep -c . || true)"
@@ -18,6 +19,26 @@ soviez_cmd_tune_run() {
   profile="$(soviez_sizing_calculate "$prod_n" "$stage_n" 0 0)"
   echo "=== Soviez sizing plan ==="
   printf '%s\n' "$profile"
+
+  if [[ "$explain" == "1" ]]; then
+    python3 - "$profile" <<'PY'
+import json, sys
+p = json.loads(sys.argv[1])
+print("=== Tune explain ===")
+print(f"Detected CPU: {p.get('cpu')}")
+print(f"Detected RAM (MB): {p.get('ram_mb')}")
+print(f"Host reserve (MB): {p.get('host_reserve_mb')}")
+print(f"Security reserve (MB): {p.get('security_headroom_mb')}")
+print(f"Stage reserve (MB): {p.get('stage_reserve_mb')}")
+print(f"PostgreSQL budget (MB): {p.get('postgres',{}).get('shared_buffers_mb')}")
+print(f"Odoo workers: {p.get('odoo',{}).get('workers')}")
+print(f"Cron threads: {p.get('odoo',{}).get('max_cron_threads')}")
+print(f"Docker SHM (MB): {p.get('docker',{}).get('shm_size_mb')}")
+if p.get('odoo',{}).get('workers') == 0:
+    print("Reason: workers=0 fallback (host RAM/CPU below multi-worker threshold)")
+PY
+    return 0
+  fi
 
   local state_dir
   if [[ "${SOVIEZ_TEST_MODE:-0}" == "1" ]]; then

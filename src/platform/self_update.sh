@@ -4,7 +4,7 @@
 
 soviez_platform_cmd_is_mutating() {
   case "${1:-}" in
-    new|stage|stage-reattach|update|restore|restore-as-stage|security-harden|\
+    init|new|stage|stage-reattach|update|restore|restore-as-stage|security-harden|\
     migration-bootstrap-destination|migration-pair|migration-transfer-start|\
     migration-activate-destination|migration-cutover-start|migration-cutover-rollback|\
     tune|platform-install|ssl-renew|ssl-repair|backup|backup-import|backup-delete|\
@@ -19,7 +19,7 @@ soviez_platform_cmd_is_mutating() {
 
 soviez_platform_cmd_is_readonly() {
   case "${1:-}" in
-    version|list|stage-list|stage-status|operations-list|operation-status|operation-logs|\
+    version|list|doctor|releases|release-status|stage-list|stage-status|operations-list|operation-status|operation-logs|\
     security-status|security-report|ssl-status|backup-list|backup-show|backup-verify|\
     backup-retention-status|backup-destination-list|help|"")
       return 0
@@ -35,10 +35,15 @@ soviez_platform_manifest_url() {
     printf '%s\n' "$SOVIEZ_PLATFORM_MANIFEST_URL"
     return 0
   fi
-  local channel
+  local channel branch
   channel="$(soviez_platform_channel)"
-  # Default customer channel remains stable on main; staging/certification use explicit channel.
-  printf 'https://raw.githubusercontent.com/Soviez/soviez-deploy/main/platform-release/%s/manifest.json\n' "$channel"
+  branch="main"
+  case "$channel" in
+    staging|certification)
+      branch="${SOVIEZ_PLATFORM_RELEASE_BRANCH:-cert/0.24.6.2-platform-cli}"
+      ;;
+  esac
+  printf 'https://raw.githubusercontent.com/Soviez/soviez-deploy/%s/platform-release/%s/manifest.json\n' "$branch" "$channel"
 }
 
 soviez_platform_lock_acquire() {
